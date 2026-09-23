@@ -9,13 +9,13 @@ Terraform here only manages the **network volume** that stores model weights.
 ```bash
 # Option A (recommended): the wrapper loads the repo-root .env
 pwsh -File scripts/tf.ps1 init
-pwsh -File scripts/tf.ps1 apply -var="data_center_id=US-KS-2" -var="volume_size_gb=100"
+pwsh -File scripts/tf.ps1 apply -var="data_center_id=US-CA-2" -var="volume_size_gb=100"
 
 # Option B: source .env yourself (bash), then plain terraform
 cd infra
 set -a; . ../.env; set +a
 terraform init
-terraform apply -var="data_center_id=US-KS-2" -var="volume_size_gb=100"
+terraform apply -var="data_center_id=US-CA-2" -var="volume_size_gb=100"
 ```
 
 Copy `.env.example` to `.env` first (from the repo root) and fill in

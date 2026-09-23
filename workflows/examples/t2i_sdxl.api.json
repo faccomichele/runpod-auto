@@ -1,7 +1,7 @@
 {
   "4": {
     "inputs": {
-      "ckpt_name": "sd_xl_base_1.0.safetensors"
+      "ckpt_name": "prefectPonyXL_v6.safetensors"
     },
     "class_type": "CheckpointLoaderSimple"
   },
@@ -15,7 +15,7 @@
   },
   "6": {
     "inputs": {
-      "text": "a cozy cabin in a snowy forest, cinematic lighting",
+      "text": "score_9, score_8_up, score_7_up, 1girl, red hair, autumn leaves, black sweater, upper body, looking at viewer, soft lighting",
       "clip": [
         "4",
         1
@@ -25,7 +25,7 @@
   },
   "7": {
     "inputs": {
-      "text": "blurry, low quality, watermark, text",
+      "text": "score_6, score_5, score_4, worst quality, low quality, watermark, signature, text",
       "clip": [
         "4",
         1

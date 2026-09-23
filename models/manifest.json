@@ -11,16 +11,17 @@
       "sha256": "235745af8d86bf4a4c1b5b4f529868b37019a10f7c0b2e79ad0abca3a22bc6e1"
     },
     {
-      "id": "civitai-sdxl-checkpoint",
-      "_comment": "REPLACE ME: set 'url' to https://civitai.com/api/download/models/<modelVersionId> (the ?modelVersionId= value from the Civitai model page URL), set 'dest' to the filename you want in checkpoints/, remove the disabled flag, and optionally fill size_bytes/sha256. The CIVITAI_TOKEN env var is set on the endpoint/template.",
-      "enabled": false,
-      "dest": "checkpoints/REPLACE_WITH_CHECKPOINT.safetensors",
-      "url": "https://civitai.com/api/download/models/REPLACE_WITH_VERSION_ID",
+      "id": "prefect-pony-xl-v6",
+      "_comment": "Prefect Pony XL v6 (Pony/SDXL checkpoint) - https://civitai.com/models/439889?modelVersionId=2114187. Pony models expect the score_9, score_8_up, score_7_up prefix. Civitai answers 401 without a token, so CIVITAI_TOKEN is required on the endpoint/pre-warm pod.",
+      "dest": "checkpoints/prefectPonyXL_v6.safetensors",
+      "url": "https://civitai.com/api/download/models/2114187",
       "auth": {
         "type": "query",
         "param": "token",
         "env": "CIVITAI_TOKEN"
-      }
+      },
+      "size_bytes": 6938041160,
+      "sha256": "20fecc2ec6af6ccffd71f093bd37bb181898dffd97b6480b73b9e269421a151b"
     },
     {
       "id": "s3-presigned-example",

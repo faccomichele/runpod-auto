@@ -85,7 +85,9 @@ Keep the same values in your local `.env` (copy `.env.example`) - the client
 and scripts read them locally. The local `.env` cannot push variables to
 RunPod; the console is the runtime source of truth for the worker.
 
-5. Click **Deploy Endpoint**. Watch **Builds** in the endpoint page.
+5. Click **Deploy Endpoint**. Watch **Builds** in the endpoint page. A
+   `runpod.serverless.start()` creation warning is expected and harmless - see
+   Troubleshooting.
 
 ## 5. Deploy updates
 
@@ -115,8 +117,8 @@ automatically), then:
 
 ```bash
 python client/generate.py \
-  --set prompt="a red fox in a snowy forest, cinematic" \
-  --set checkpoint=<filename from your manifest dest> \
+  --set prompt="score_9, score_8_up, score_7_up, 1girl, red hair, autumn leaves, soft lighting" \
+  --set checkpoint=prefectPonyXL_v6.safetensors \
   --set steps=25
 ```
 
@@ -245,7 +247,7 @@ On Windows, any Terraform command can go through `scripts/tf.ps1` (it loads
 `runpodctl` manages the lifecycle without a state file (sizes 1-4000 GB):
 
 ```bash
-runpodctl network-volume create --name comfyui-models --size 100 --data-center-id US-KS-2
+runpodctl network-volume create --name comfyui-models --size 100 --data-center-id US-CA-2
 runpodctl network-volume list
 runpodctl network-volume delete <volume-id>
 ```
@@ -260,3 +262,4 @@ runpodctl network-volume delete <volume-id>
 | Sizes mismatch / corrupt file                       | Set `MODELS_VERIFY_SHA=true`, run the audit, delete the file on the volume, re-run the bootstrap.                    |
 | Download 401/403                                    | Token env var missing/invalid for a gated or Civitai-auth model. Check the bootstrap log lines naming the env var.   |
 | Endpoint scaled to 0 after inactivity                | RunPod scales max workers down after 7 idle days; raise max workers in the console.                                   |
+| Creation warning `Could not find runpod.serverless.start() in your repo` | Advisory false negative: the handler ships in the base image, not this repo (RunPod reads the Dockerfile by path but checks the handler via GitHub code search, which cannot see inside the image). Confirm **Builds** reaches `Completed` and a test job runs; otherwise ignore. |

@@ -65,7 +65,7 @@ cp .env.example .env          # Windows: Copy-Item .env.example .env
 # 4. Run a job from your laptop (the client auto-loads .env):
 python client/generate.py \
   --set prompt="a red fox in a snowy forest, cinematic lighting" \
-  --set checkpoint=my_sdxl_checkpoint.safetensors \
+  --set checkpoint=prefectPonyXL_v6.safetensors \
   --set steps=30
 ```
 

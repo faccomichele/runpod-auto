@@ -20,5 +20,5 @@ variable "volume_size_gb" {
 variable "data_center_id" {
   description = "RunPod data center id. The endpoint's workers must run in the same data center as the volume. Prefer DCs that support the network volume S3 API and carry your GPU types."
   type        = string
-  default     = "US-KS-2"
+  default     = "US-CA-2"
 }

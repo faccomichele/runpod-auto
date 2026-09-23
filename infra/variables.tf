@@ -12,7 +12,7 @@ variable "volume_name" {
 }
 
 variable "volume_size_gb" {
-  description = "Volume size in GB. Can be increased later but never decreased. ~100 GB fits SDXL/FLUX; add ~40 GB for Wan 2.2 I2V."
+  description = "Volume size in GB. Can be increased later but never decreased. ~100 GB fits SDXL/FLUX; add ~40 GB for Wan 2.2 I2V. For per-session (ephemeral) volumes see docs/runpod-setup.md."
   type        = number
   default     = 100
 }

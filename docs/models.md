@@ -148,6 +148,10 @@ curl -fsSL https://raw.githubusercontent.com/<you>/runpod-auto/main/models/manif
 MANIFEST_PATH=/workspace/manifest.json bash /workspace/bootstrap-models.sh
 ```
 
+      A Pod terminal cannot read your laptop's `.env`; paste the token values
+      there (or set them on the endpoint, where the serverless bootstrap reads
+      them automatically).
+
    3. Audit the result, then terminate the Pod:
 
 ```bash

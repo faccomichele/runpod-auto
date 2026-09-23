@@ -81,6 +81,10 @@ Alternatively use the optional Terraform module in [`infra/`](../infra/README.md
 > For serverless endpoints, set these env vars directly and rotate the token in
 > RunPod/Civitai if it ever leaks. Never commit tokens to the repo.
 
+Keep the same values in your local `.env` (copy `.env.example`) - the client
+and scripts read them locally. The local `.env` cannot push variables to
+RunPod; the console is the runtime source of truth for the worker.
+
 5. Click **Deploy Endpoint**. Watch **Builds** in the endpoint page.
 
 ## 5. Deploy updates
@@ -105,10 +109,11 @@ See [models.md -> Pre-warming](models.md#pre-warming-recommended-before-large-mo
 
 ## 7. First request
 
-```bash
-export RUNPOD_ENDPOINT_ID="<endpoint id>"
-export RUNPOD_API_KEY="<runpod api key>"
+Copy `.env.example` to `.env` in the repo root and fill in
+`RUNPOD_ENDPOINT_ID` / `RUNPOD_API_KEY` (the client loads `.env`
+automatically), then:
 
+```bash
 python client/generate.py \
   --set prompt="a red fox in a snowy forest, cinematic" \
   --set checkpoint=<filename from your manifest dest> \
@@ -152,6 +157,98 @@ instead:
 2. **Serverless -> New Endpoint -> Import from Docker Registry**.
 3. Enter the image reference and configure the registry credentials.
 4. All other settings (volume, env vars, GPU) are identical to section 4.
+
+## 10. Session lifecycle & teardown (ephemeral volume)
+
+Network volumes are billed **hourly for as long as they exist**, even when no
+workers are attached. The standard tier is $0.07/GB/month for the first 1 TB
+($0.05/GB beyond), roughly:
+
+| Volume | Per hour | 8-hour day | Per month |
+| ------ | -------- | ---------- | --------- |
+| 50 GB  | ~$0.005  | ~$0.04     | $3.50     |
+| 100 GB | ~$0.010  | ~$0.08     | $7.00     |
+| 150 GB | ~$0.014  | ~$0.12     | $10.50    |
+
+Deleting the volume stops the charges immediately and **permanently erases all
+models on it**. To use a volume only for the day you are working:
+
+### Start of day
+
+1. Create the volume (wrapper around `terraform apply`, or run Terraform
+   directly):
+
+   ```powershell
+   pwsh -File scripts/session-up.ps1
+   ```
+
+   ```bash
+   set -a; . ./.env; set +a      # or use scripts/tf.ps1 on Windows
+   terraform -chdir=infra apply
+   terraform -chdir=infra output -raw volume_id
+   ```
+
+2. Attach it to the endpoint: **Endpoint -> Manage -> Edit Endpoint ->
+   Advanced -> Network Volumes -> select the volume -> Save Endpoint**.
+   Workers restart on the new volume.
+3. Pre-warm the models (see
+   [models.md -> Pre-warming](models.md#pre-warming-recommended-before-large-models))
+   or send your first job and let the worker download them.
+
+### End of day
+
+1. **Detach** the volume from the endpoint (same Advanced -> Network Volumes
+   screen, deselect, Save). This prevents the endpoint from pointing at a
+   deleted volume.
+2. Destroy the volume:
+
+   ```powershell
+   pwsh -File scripts/session-down.ps1   # asks you to type 'destroy'
+   ```
+
+   ```bash
+   set -a; . ./.env; set +a
+   terraform -chdir=infra destroy
+   ```
+
+3. Confirm it is gone under **Storage** in the console; billing stops at
+   deletion.
+
+A new volume gets a **new id**, so next session you attach it to the endpoint
+again and re-download models. If you work on this daily, keeping a volume alive
+($7/month at 100 GB) is usually cheaper than re-downloading Wan 2.2's ~38 GB
+every day.
+
+### Edge cases
+
+On Windows, any Terraform command can go through `scripts/tf.ps1` (it loads
+`.env`), e.g. `pwsh -File scripts/tf.ps1 state rm runpod_network_volume.models`.
+
+- **Volume deleted in the console/CLI but still in Terraform state:**
+
+  ```bash
+  terraform -chdir=infra state rm runpod_network_volume.models
+  ```
+
+- **Volume created outside Terraform and you now want to manage/destroy it**
+  (the provider supports import):
+
+  ```bash
+  terraform -chdir=infra import runpod_network_volume.models <volume-id>
+  ```
+
+- The Terraform state file is local and gitignored. Do not delete it while the
+  volume exists, or Terraform loses track of the resource.
+
+### No-Terraform alternative
+
+`runpodctl` manages the lifecycle without a state file (sizes 1-4000 GB):
+
+```bash
+runpodctl network-volume create --name comfyui-models --size 100 --data-center-id US-KS-2
+runpodctl network-volume list
+runpodctl network-volume delete <volume-id>
+```
 
 ## Troubleshooting
 

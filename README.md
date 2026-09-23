@@ -42,6 +42,8 @@ models/manifest.json        model URLs (Civitai / HF / S3) and destinations
 workflows/examples/         sanitized example workflow + parameter map
 client/generate.py          CLI: submit, poll, save outputs (stdlib only)
 infra/                      optional Terraform for the network volume
+scripts/                    env/tf/session helpers (all load .env)
+.env.example                template for tokens/ids (copy to .env; .env is ignored)
 docs/
   runpod-setup.md           console walkthrough (GitHub integration, volume, env)
   models.md                 manifest format, Civitai/HF/S3, pre-warming, audits
@@ -57,10 +59,10 @@ docs/
 # 2. Follow docs/runpod-setup.md to connect RunPod, create the volume,
 #    deploy the endpoint from this repo, and set CIVITAI_TOKEN.
 
-# 3. Run a job from your laptop:
-export RUNPOD_ENDPOINT_ID="<endpoint id>"
-export RUNPOD_API_KEY="<runpod api key>"
+# 3. Create your local env file and fill in the values:
+cp .env.example .env          # Windows: Copy-Item .env.example .env
 
+# 4. Run a job from your laptop (the client auto-loads .env):
 python client/generate.py \
   --set prompt="a red fox in a snowy forest, cinematic lighting" \
   --set checkpoint=my_sdxl_checkpoint.safetensors \
@@ -71,6 +73,10 @@ Outputs are written to `out/`. `python client/generate.py --show-params` lists
 the parameters available in the example workflow. Use `--workflow
 workflows/my_workflow.api.json` for your own exports (copy the params map next
 to it or pass `--params`).
+
+For an ephemeral, per-session volume (`scripts/session-up.ps1` /
+`scripts/session-down.ps1`) see
+[docs/runpod-setup.md -> Session lifecycle](docs/runpod-setup.md#10-session-lifecycle--teardown-ephemeral-volume).
 
 ### Workflow authoring
 
@@ -107,7 +113,9 @@ Full reference: [docs/runpod-setup.md](docs/runpod-setup.md#8-environment-variab
   other PII) - that is a workflow-privacy choice, not a repo-visibility one.
 - Prompts and input images travel only over the RunPod API - never to GitHub.
 - Tokens (`CIVITAI_TOKEN`, `HF_TOKEN`, S3 output keys) are endpoint environment
-  variables set in the RunPod console. Never commit them.
+  variables set in the RunPod console. Never commit them. Locally they live in
+  `.env` (gitignored); `.env.example` is the committed template and the tools
+  auto-load it.
 - Pre-signed S3 model URLs are time-limited bearer secrets. Keep them in a
   volume-local manifest and point the endpoint at it with `MANIFEST_PATH`
   (see [docs/models.md](docs/models.md#adding-a-model-from-your-own-aws-s3-bucket));

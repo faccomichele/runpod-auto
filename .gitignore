@@ -65,4 +65,5 @@ out/
 # Local environment files (tokens, endpoint ids)
 .env
 .env.*
+!.env.example
 *.local.json

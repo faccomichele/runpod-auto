@@ -25,6 +25,10 @@ Environment:
     RUNPOD_ENDPOINT_ID   Endpoint id (or pass --endpoint)
     RUNPOD_API_KEY       RunPod API key (or pass --api-key)
 
+A repo-root .env file (copy .env.example) is loaded automatically; real process
+environment variables take precedence. Use --env-file to point at a different
+file, and --show-env to print the resolved configuration.
+
 Requires only the Python standard library (>= 3.8).
 """
 
@@ -54,6 +58,67 @@ class ApiError(RuntimeError):
 
 def log(message: str) -> None:
     print(f"[generate] {message}", flush=True)
+
+
+def resolve_env_path(explicit: str | None) -> Path | None:
+    if explicit:
+        return Path(explicit)
+    cwd_env = Path.cwd() / ".env"
+    if cwd_env.is_file():
+        return cwd_env
+    repo_env = Path(__file__).resolve().parent.parent / ".env"
+    return repo_env if repo_env.is_file() else None
+
+
+def load_env_file(path: Path, override: bool = False) -> int:
+    """Minimal .env loader: KEY=VALUE, optional `export`, # comments, quotes."""
+    if not path.is_file():
+        return 0
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return 0
+
+    loaded = 0
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        if "=" not in line:
+            continue
+
+        name, raw = line.split("=", 1)
+        name = name.strip()
+        if not name or not (name[0].isalpha() or name[0] == "_"):
+            continue
+        if not all(ch.isalnum() or ch == "_" for ch in name):
+            continue
+
+        value = raw.strip()
+        if value[:1] in ("'", '"'):
+            quote = value[0]
+            end = value.find(quote, 1)
+            if end > 0:
+                value = value[1:end]
+        else:
+            comment = value.find(" #")
+            if comment >= 0:
+                value = value[:comment].rstrip()
+
+        if override or name not in os.environ:
+            os.environ[name] = value
+            loaded += 1
+    return loaded
+
+
+def mask_secret(value: str | None) -> str:
+    if not value:
+        return "(unset)"
+    if len(value) <= 8:
+        return "***"
+    return f"{value[:4]}...{value[-4:]}"
 
 
 def load_json(path: Path):
@@ -249,9 +314,13 @@ def parse_args(argv):
     parser.add_argument("--seed", type=int, default=None, help="override the seed (default: random)")
     parser.add_argument("--image", dest="images", action="append", default=[], metavar="PATH",
                         help="input image to upload and wire into the workflow (repeatable)")
-    parser.add_argument("--endpoint", default=os.environ.get("RUNPOD_ENDPOINT_ID"), help="RunPod endpoint id")
-    parser.add_argument("--api-key", default=os.environ.get("RUNPOD_API_KEY"), help="RunPod API key")
+    parser.add_argument("--endpoint", default=None,
+                        help="RunPod endpoint id (default: RUNPOD_ENDPOINT_ID)")
+    parser.add_argument("--api-key", default=None,
+                        help="RunPod API key (default: RUNPOD_API_KEY)")
     parser.add_argument("--api-base", default=DEFAULT_API_BASE, help="RunPod API base URL")
+    parser.add_argument("--env-file", default=None,
+                        help="env file to load (default: ./.env, then the repo-root .env)")
     parser.add_argument("--async", dest="async_mode", action="store_true",
                         help="submit with /run and poll /status (best for long jobs/video)")
     parser.add_argument("--poll-interval", type=float, default=2.0, help="seconds between status polls")
@@ -259,11 +328,29 @@ def parse_args(argv):
     parser.add_argument("--outdir", default="out", help="directory for generated files")
     parser.add_argument("--save-json", action="store_true", help="store the raw API response next to the outputs")
     parser.add_argument("--show-params", action="store_true", help="list available parameters and exit")
+    parser.add_argument("--show-env", action="store_true",
+                        help="print the resolved env file, endpoint and masked API key, then exit")
     return parser.parse_args(argv)
 
 
 def main(argv=None) -> int:
     args = parse_args(argv)
+
+    env_path = resolve_env_path(args.env_file)
+    if env_path is not None:
+        loaded = load_env_file(env_path)
+        if loaded:
+            log(f"loaded {loaded} variable(s) from {env_path}")
+
+    endpoint = args.endpoint or os.environ.get("RUNPOD_ENDPOINT_ID")
+    api_key = args.api_key or os.environ.get("RUNPOD_API_KEY")
+
+    if args.show_env:
+        print(f"env file: {env_path if env_path else '(none)'}")
+        print(f"endpoint: {endpoint or '(unset)'}")
+        print(f"api key:  {mask_secret(api_key)}")
+        return 0
+
     workflow_path = Path(args.workflow)
     workflow = load_json(workflow_path)
 
@@ -280,10 +367,10 @@ def main(argv=None) -> int:
             print(f"{key} -> node {spec['node']} input '{spec['input']}'")
         return 0
 
-    if not args.endpoint:
-        raise ApiError("no endpoint id: pass --endpoint or set RUNPOD_ENDPOINT_ID")
-    if not args.api_key:
-        raise ApiError("no API key: pass --api-key or set RUNPOD_API_KEY")
+    if not endpoint:
+        raise ApiError("no endpoint id: pass --endpoint or set RUNPOD_ENDPOINT_ID (see .env.example)")
+    if not api_key:
+        raise ApiError("no API key: pass --api-key or set RUNPOD_API_KEY (see .env.example)")
 
     apply_overrides(workflow, params, args.assignments, args.seed)
     images = build_images(params, workflow, args.images)
@@ -293,26 +380,25 @@ def main(argv=None) -> int:
         job_input["images"] = images
     payload = {"input": job_input}
 
-    endpoint = args.endpoint
     deadline = time.time() + args.timeout
     job_id = str(uuid.uuid4())
 
     if args.async_mode:
         log(f"submitting job (async) to endpoint {endpoint}")
-        response = http_json(f"{args.api_base}/{endpoint}/run", payload, args.api_key)
+        response = http_json(f"{args.api_base}/{endpoint}/run", payload, api_key)
     else:
         log(f"submitting job (sync) to endpoint {endpoint}")
         response = http_json(
             f"{args.api_base}/{endpoint}/runsync",
             payload,
-            args.api_key,
+            api_key,
             timeout=max(120.0, args.timeout),
         )
 
     job_id = response.get("id") or job_id
     if response.get("status") != "COMPLETED":
         log(f"job {job_id} queued; polling for completion")
-        response = poll_job(args.api_base, endpoint, args.api_key, job_id, args.poll_interval, deadline)
+        response = poll_job(args.api_base, endpoint, api_key, job_id, args.poll_interval, deadline)
 
     if args.save_json:
         outdir = Path(args.outdir)

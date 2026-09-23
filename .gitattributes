@@ -1,0 +1,11 @@
+# Keep files that run inside Linux containers as LF regardless of the local OS.
+* text=auto
+
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.tf text eol=lf
+*.hcl text eol=lf
+*.example text eol=lf

@@ -1,0 +1,18 @@
+{
+  "description": "Logical parameter map for t2i_sdxl.api.json. Keys are what you pass to client/generate.py --set (e.g. --set steps=30). 'node' is the workflow node id, 'input' is that node's input field.",
+  "params": {
+    "prompt": { "node": "6", "input": "text" },
+    "negative": { "node": "7", "input": "text" },
+    "checkpoint": { "node": "4", "input": "ckpt_name" },
+    "seed": { "node": "3", "input": "seed" },
+    "steps": { "node": "3", "input": "steps" },
+    "cfg": { "node": "3", "input": "cfg" },
+    "sampler": { "node": "3", "input": "sampler_name" },
+    "scheduler": { "node": "3", "input": "scheduler" },
+    "denoise": { "node": "3", "input": "denoise" },
+    "width": { "node": "5", "input": "width" },
+    "height": { "node": "5", "input": "height" },
+    "batch_size": { "node": "5", "input": "batch_size" },
+    "filename_prefix": { "node": "9", "input": "filename_prefix" }
+  }
+}

@@ -1,0 +1,14 @@
+.git
+.gitattributes
+.github
+client
+docs
+infra
+workflows
+out
+*.tfvars
+*.tfstate
+*.tfstate.*
+__pycache__
+**/__pycache__
+*.pyc

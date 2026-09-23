@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "_comment": "Model manifest consumed by docker/bootstrap-models.sh. Paths in 'dest' are relative to <models-root>/models and must match the worker's volume layout: checkpoints/ (full checkpoints), unet/ (diffusion models), clip/ (text encoders), vae/, loras/. Only enabled entries are downloaded. Never put tokens here - use the env var named in auth.env. If this repo is public, keep only public URLs here; private/pre-signed URLs belong in a volume-local manifest (MANIFEST_PATH=/runpod-volume/config/manifest.json).",
+  "models": [
+    {
+      "id": "sdxl-vae-fp16-fix",
+      "_comment": "Small, public smoke-test file. Keep enabled to verify volume + downloader end-to-end without any token.",
+      "dest": "vae/sdxl-vae-fp16-fix.safetensors",
+      "url": "https://huggingface.co/madebyollin/sdxl-vae-fp16-fix/resolve/main/sdxl_vae.safetensors",
+      "size_bytes": 334641162,
+      "sha256": "235745af8d86bf4a4c1b5b4f529868b37019a10f7c0b2e79ad0abca3a22bc6e1"
+    },
+    {
+      "id": "civitai-sdxl-checkpoint",
+      "_comment": "REPLACE ME: set 'url' to https://civitai.com/api/download/models/<modelVersionId> (the ?modelVersionId= value from the Civitai model page URL), set 'dest' to the filename you want in checkpoints/, remove the disabled flag, and optionally fill size_bytes/sha256. The CIVITAI_TOKEN env var is set on the endpoint/template.",
+      "enabled": false,
+      "dest": "checkpoints/REPLACE_WITH_CHECKPOINT.safetensors",
+      "url": "https://civitai.com/api/download/models/REPLACE_WITH_VERSION_ID",
+      "auth": {
+        "type": "query",
+        "param": "token",
+        "env": "CIVITAI_TOKEN"
+      }
+    },
+    {
+      "id": "s3-presigned-example",
+      "_comment": "Public/CloudFront URLs are safe to commit. A pre-signed URL is a bearer secret and expires: keep it in a volume-local manifest instead (MANIFEST_PATH=/runpod-volume/config/manifest.json). Generate one with: aws s3 presign s3://bucket/key --expires-in 604800",
+      "enabled": false,
+      "dest": "checkpoints/from-my-bucket.safetensors",
+      "url": "https://my-bucket.s3.us-east-1.amazonaws.com/models/from-my-bucket.safetensors?X-Amz-Algorithm=..."
+    }
+  ]
+}

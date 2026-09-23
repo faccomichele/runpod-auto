@@ -1,0 +1,120 @@
+{
+  "49": {
+    "inputs": {
+      "ckpt_name": "DreamShaper_8_pruned.safetensors"
+    },
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": {
+      "title": "Load Checkpoint"
+    }
+  },
+  "50": {
+    "inputs": {
+      "stop_at_clip_layer": -2,
+      "clip": [
+        "49",
+        1
+      ]
+    },
+    "class_type": "CLIPSetLastLayer",
+    "_meta": {
+      "title": "CLIP Set Last Layer"
+    }
+  },
+  "51": {
+    "inputs": {
+      "dimensions": " 832 x 1216  (portrait)",
+      "clip_scale": 2.5,
+      "batch_size": 4
+    },
+    "class_type": "SDXL Empty Latent Image (rgthree)",
+    "_meta": {
+      "title": "SDXL Empty Latent Image (rgthree)"
+    }
+  },
+  "52": {
+    "inputs": {
+      "text": "kawaiiShoujo, ((Tsube Hana )), anime style, Score_7_up, score_8_up, score_9, masterpiece, best quality, amazing quality, very aesthetic, absurdres, highly detailed, high resolution, low aperture, shallow depth of field, rule of thirds, realistic proportions, intricate details, sharp focus on subject, uncensored, detailed face, character alone, illustration intended for character reference or visual material, characterized by vibrant colors and detailed character design, \n\n((perfectly flat chest):1.4), ((short body)), pointy breasts, (perky breasts, three quarter view) , breast expansion , ((round breasts)), \n\n1girl , preteen, (toddler), ((solo)), slim body, collarbone , armpit crease , double eyelids, light blue eyes, light blue hair with navy tips, ahoge, medium hair, ((side braid)), blunt bangs,\n\ncompletely swimsuit, school swimsuit, cameltoe, (covered small nipples, covered small areloa), see-through,\n\nhalf body view(upper body view, head to thighs), ((standing)), upright, front view, straight-on, face front, looking at viewer, \n\n((outdoor)), poolside, sky, clouds , sunlight , depth of field,\n",
+      "clip": [
+        "50",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)  - POSITIVE"
+    }
+  },
+  "53": {
+    "inputs": {
+      "text": "worst quality, worst detail, bad, low quality, bad anatomy, 6 fingers, bad hands, bad feet, bad hand, bad finger, bad fingers, extra finger, extra fingers, split finger, split fingers, extra digits, fused arms, fused hands, colored cuffs, ((unbuttoned)), pedestal, (bad quality, worst quality, low quality, bad anatomy, bad hand:1.2), lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, jpeg artifacts, signature, watermark, ((username)), blurry, ((pointy ears)), ((logo)), tattoo, ((text)), watermark, signature,((letters)), numbers, logos, labels, username, speach bubbles, artist name, extra arms, distorted body, low quality, wardrobe malfunction, ((face cut-off)), ((head-cut-off)), see-through, censor, bar censor, censored, score_6, score_5, score_4, source_pony, source_anime, source_furry, source_cartoon, unrealistic, 3d, worst quality, low quality, lowres, bad anatomy, bad hands, signature, watermarks, ugly, imperfect eyes, skewed eyes, unnatural face, unnatural body, error, extra limb, missing limbs, ((curvy waist)),\n",
+      "clip": [
+        "50",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)  - NEGATIVE"
+    }
+  },
+  "54": {
+    "inputs": {
+      "seed": 0,
+      "steps": 25,
+      "cfg": 7,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 1,
+      "model": [
+        "49",
+        0
+      ],
+      "positive": [
+        "52",
+        0
+      ],
+      "negative": [
+        "53",
+        0
+      ],
+      "latent_image": [
+        "51",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "55": {
+    "inputs": {
+      "samples": [
+        "54",
+        0
+      ],
+      "vae": [
+        "49",
+        2
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "56": {
+    "inputs": {
+      "filename_prefix": "t2i_sdxl",
+      "images": [
+        "55",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  }
+}

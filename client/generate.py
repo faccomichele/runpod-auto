@@ -26,8 +26,8 @@ Environment:
     RUNPOD_API_KEY       RunPod API key (or pass --api-key)
 
 The default transport submits with /run and polls /status (30-minute result
-retention), so long jobs - a cold worker can spend minutes staging models from
-the network volume - are not cut off by HTTP connection limits. --runsync keeps
+retention), so long jobs - a cold worker can spend time initializing ComfyUI
+from cached models - are not cut off by HTTP connection limits. --runsync keeps
 one connection open and is only reliable for short, warm jobs. Transient
 failures are retried (--retries, --retry-delay); a submission whose connection
 drops ambiguously is not resubmitted unless --retry-duplicate is given.
@@ -224,7 +224,7 @@ def validate_model_params(workflow: dict, params: dict, manifest_path: Path | No
                 continue
             errors.append(
                 f"'{base}' matches manifest entry '{dest}', which is disabled. "
-                f"Enable it in models/manifest.json, deploy a release, and pre-warm."
+                f"Enable it in models/manifest.json, deploy a release, and refresh the endpoint cache."
             )
             continue
 
@@ -233,7 +233,7 @@ def validate_model_params(workflow: dict, params: dict, manifest_path: Path | No
             dest, enabled = ids[stem]
             note = "" if enabled else " (that entry is currently disabled)"
             errors.append(
-                f"'{name}' (parameter '{key}') matches the manifest id '{stem}', not a file on the volume.\n"
+                f"'{name}' (parameter '{key}') matches the manifest id '{stem}', not a file in the cached repository.\n"
                 f"    Use the dest filename: {Path(dest).name}{note}\n"
                 f"    The manifest 'id' is only a label; ComfyUI uses the 'dest' basename."
             )
@@ -242,7 +242,7 @@ def validate_model_params(workflow: dict, params: dict, manifest_path: Path | No
         case_match = next((item for item in by_basename if item.lower() == base.lower()), None)
         if case_match:
             errors.append(
-                f"'{name}' (parameter '{key}') does not match the volume filename exactly "
+                f"'{name}' (parameter '{key}') does not match the cached filename exactly "
                 f"(filenames are case-sensitive).\n    Did you mean: {case_match}"
             )
             continue
@@ -600,7 +600,7 @@ def main(argv=None) -> int:
             raise ApiError(
                 "model filename check failed:\n"
                 f"{bullets}\n"
-                "  Use --no-model-check to bypass (for example when using a volume-local manifest)."
+                "  Use --no-model-check to bypass (for example when the local manifest is not synchronized with the cached repository)."
             )
 
     job_input = {"workflow": workflow}

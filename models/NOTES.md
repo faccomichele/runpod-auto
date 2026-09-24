@@ -1,11 +1,24 @@
 # NOTES
 
-## How to get file details
+## Cached repository inventory
 
-```sh
-$url="https://civitai.com/api/v1/model-versions/0000001"
-$temp = curl.exe -s "$url" | ConvertFrom-Json -AsHashtable; $temp.files | ForEach-Object { [pscustomobject]@{ id = $_.id; name = $_.name; sizeKB = $_.sizeKB; bytes = [long]($_.sizeKB * 1024) } } | Format-List; $temp.files | ForEach-Object { $_.hashes | ConvertTo-Json -Compress }
+The worker validates the files in the private Hugging Face model repository,
+not the source URLs in the manifest. Keep the repository tree and both copies
+of `models/manifest.json` synchronized:
 
-$url="https://huggingface.co/org/repo_name/resolve/main/split_files/vae/file.safetensors"
-curl.exe -sIL "$url" | Select-String -Pattern '^content-length'
+```text
+models/<dest>
 ```
+
+Use local files to populate exact manifest metadata before uploading them:
+
+```powershell
+$file = Get-Item .\models\checkpoints\my_model.safetensors
+$file.Length
+Get-FileHash $file -Algorithm SHA256
+```
+
+The resulting byte count belongs in `size_bytes`; the hash belongs in
+`sha256`. Set `CACHED_MODELS_VERIFY_SHA=true` on the endpoint when auditing
+the complete cached repository. The runtime does not use `url` or `auth` to
+download replacements.

@@ -1,125 +1,110 @@
 # RunPod setup
 
-End-to-end setup for the custom ComfyUI serverless worker. Everything below
-happens in the RunPod console unless noted otherwise.
+End-to-end setup for the custom ComfyUI Serverless worker using RunPod Cached
+Models. The worker image contains ComfyUI and the cache validator; model files
+come from a private Hugging Face model repository selected during endpoint
+creation.
 
 ## Prerequisites
 
 - RunPod account with credits and an [API key](https://www.runpod.io/console/user/settings).
-- A GitHub account with this repository pushed (public or private - the
-  integration flow is identical).
-- A [Civitai API token](https://civitai.com/user/account) (for Civitai downloads).
-- Optional: a Hugging Face token for gated models (`HF_TOKEN`).
-- Optional: an AWS S3 bucket for outputs (phase 2 / video; not required for T2I).
+- This worker repository pushed to GitHub (public or private).
+- A private Hugging Face **model repository**, not a Space application.
+- A Hugging Face fine-grained read token that can access that repository.
+- Optional: an AWS S3 bucket for output delivery in phase 2.
 
-## 1. Push the repository to GitHub
+## 1. Prepare the private model repository
+
+Create a private model repository such as `my-org/comfyui-models`. Upload the
+model files and manifest using the layout described in
+[Models: RunPod Cached Models](models.md):
+
+```text
+models/
+  manifest.json
+  checkpoints/
+  clip/
+  loras/
+  text_encoders/
+  unet/
+  upscale_models/
+  vae/
+```
+
+Upload each file at the exact path represented by its manifest `dest` value.
+Keep the manifest copy in this worker repository and the private model
+repository synchronized. Never place access tokens in either manifest.
+
+Create a Hugging Face fine-grained access token from **Settings -> Access
+Tokens** with read access to this model repository. Copy the token when it is
+created; it is entered in RunPod's cached-model configuration during endpoint
+creation and is not added to this repository or the worker environment.
+
+## 2. Push the worker repository to GitHub
 
 ```bash
 git add .
-git commit -m "Serverless ComfyUI worker: bootstrap, manifest, client"
+git commit -m "Serverless ComfyUI worker: cached models"
 git push origin main
 ```
 
-Keep real workflow exports out of git (they can embed prompts/filenames - they
-are gitignored by default; only sanitized examples are committed), and never
-commit tokens or pre-signed S3 URLs. Public and private repos both work.
+Keep real workflow exports out of git. They are gitignored by default because
+they can contain prompts, filenames, and input-image details.
 
-## 2. Connect GitHub to RunPod
+## 3. Connect GitHub to RunPod
 
 1. RunPod console -> **Settings -> Connections -> GitHub -> Connect**.
-2. Install the RunPod GitHub App and choose **Only select repositories**,
-   selecting this repo (public and private repos are both supported).
-3. Validate: **Serverless -> New Endpoint -> Import Git Repository** should now
-   list the repo. If it does not, use the fallback in section 9.
+2. Install the RunPod GitHub App and select this repository.
+3. Confirm that **Serverless -> New Endpoint -> Import Git Repository** lists
+  the repository. If it does not, use the registry fallback below.
 
-## 3. Create the network volume
+## 4. Create the endpoint
 
-Models live on a persistent network volume so workers never re-download weights.
+1. Select **Serverless -> New Endpoint -> Import Git Repository**.
+2. Choose this repository, branch `main`, and Dockerfile path `/Dockerfile`.
+3. In endpoint configuration, set **Model** to the private repository id, for
+  example `my-org/comfyui-models`.
+4. Add the Hugging Face access token when RunPod prompts for the private model.
+  RunPod uses this setting to populate its Cached Models cache.
+5. Add `HF_MODEL_ID` as an endpoint environment variable with the exact same
+  value: `my-org/comfyui-models`.
 
-- Console -> **Storage -> New Network Volume**.
-- Size: **100 GB** for SDXL + FLUX; add ~40 GB for Wan 2.2 I2V later.
-- Data center: choose one that
-  - has your GPU types in stock (check the GPU filter),
-  - supports the [network volume S3 API](https://docs.runpod.io/storage/s3-api#datacenter-availability)
-    (optional, but makes pre-warming from a laptop easier),
-  - is close to you.
-- Note the **volume id**.
+Recommended initial settings:
 
-Alternatively use the optional Terraform module in [`infra/`](../infra/README.md).
+| Setting | Value |
+| ------- | ----- |
+| Endpoint type | Queue |
+| GPU type(s) | 4090 PRO, then A6000 / A40 48GB fallback |
+| Active workers | 0 while validating |
+| Max workers | 1 until the first successful request |
+| GPUs per worker | 1 |
+| Idle timeout | 300 s while iterating; reduce after validation |
+| Execution timeout | 1800 s for image-to-video workloads |
+| FlashBoot | Enabled |
+| Container disk | 30 GB or more for the worker image and runtime |
+| CUDA versions | 12.8 and newer compatible versions |
 
-## 4. Create the endpoint from GitHub
+The **Model** setting selects the cache. `HF_MODEL_ID` tells the custom worker
+which cached repository to resolve. The values must match exactly.
 
-1. **Serverless -> New Endpoint -> Import Git Repository**.
-2. Repo: this repository, branch `main`, Dockerfile path `/Dockerfile`.
-3. Endpoint settings:
+## 5. Deploy and verify
 
-| Setting                    | Value                                                                 |
-| -------------------------- | --------------------------------------------------------------------- |
-| Endpoint type              | Queue                                                                 |
-| GPU type(s)                | 4090 PRO (primary), A6000 / A40 48GB (fallback)                       |
-| Active workers             | 0                                                                     |
-| Max workers                | 1 (raise after the first successful run)                              |
-| GPUs per worker            | 1                                                                     |
-| Idle timeout               | 5 s startup; raise to 300 s while iterating to keep the model staged   |
-| Execution timeout          | 1800 s (cold model staging alone can take several minutes)            |
-| FlashBoot                  | Enabled                                                               |
-| Container disk             | 30 GB (the base image is ~15 GB compressed)                           |
-| CUDA versions              | 12.8 and all newer (torch cu128 needs driver >= 570)                  |
-| Advanced -> Network Volume | select the volume from step 3                                         |
+Click **Deploy Endpoint** and watch **Builds**. On worker startup, logs should
+include a resolved snapshot and lines like:
 
-> **First-job cost:** every new worker stages the checkpoint from the network
-> volume (about 6 minutes for the SDXL example), while the 25-step generation
-> itself takes ~11 s. Keep the worker warm (Idle timeout 300 s, or Active
-> workers 1) while iterating, and keep Execution timeout above cold-load plus
-> generation.
-
-4. Environment variables (endpoint -> Settings -> Environment Variables):
-
-| Variable                    | Example / notes                                                    |
-| --------------------------- | ------------------------------------------------------------------ |
-| `CIVITAI_TOKEN`             | Civitai API token (model downloads)                                |
-| `HF_TOKEN`                  | optional; gated Hugging Face repos                                 |
-| `MODELS_BOOTSTRAP`          | `true`                                                             |
-| `COMFY_LOG_LEVEL`           | `INFO` (use `DEBUG` while troubleshooting)                         |
-| `NETWORK_VOLUME_DEBUG`      | `false` (set `true` to have the worker print a volume file listing) |
-
-> RunPod Secrets (`{{ RUNPOD_SECRET_... }}`) are documented for Pod templates.
-> For serverless endpoints, set these env vars directly and rotate the token in
-> RunPod/Civitai if it ever leaks. Never commit tokens to the repo.
-
-Keep the same values in your local `.env` (copy `.env.example`) - the client
-and scripts read them locally. The local `.env` cannot push variables to
-RunPod; the console is the runtime source of truth for the worker.
-
-5. Click **Deploy Endpoint**. Watch **Builds** in the endpoint page. A
-   `runpod.serverless.start()` creation warning is expected and harmless - see
-   Troubleshooting.
-
-## 5. Deploy updates
-
-GitHub integration deploys on **new GitHub releases**, not on plain pushes:
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-# then create a Release for that tag on GitHub
+```text
+[cached-models] present checkpoints/my_model.safetensors
+[cached-models] summary: repository=my-org/comfyui-models snapshot=... present=... missing=0 mismatches=0
+[cached-models] ComfyUI model paths configured from ...
 ```
 
-Use **Builds -> Rollback** to return to a previous image.
+The worker exits with a warning if the repository is missing, a file is absent,
+or a declared size does not match. It does not download a replacement.
 
-## 6. Pre-warm the volume (recommended)
+## 6. First request
 
-The worker image downloads any missing manifest models at startup, so the very
-first request already works - it just waits for the download. For small SDXL
-checkpoints that is a couple of minutes; for large models, pre-warm once:
-
-See [models.md -> Pre-warming](models.md#pre-warming-recommended-before-large-models).
-
-## 7. First request
-
-Copy `.env.example` to `.env` in the repo root and fill in
-`RUNPOD_ENDPOINT_ID` / `RUNPOD_API_KEY` (the client loads `.env`
-automatically), then:
+Copy `.env.example` to `.env` and fill in `RUNPOD_ENDPOINT_ID` and
+`RUNPOD_API_KEY` for the client:
 
 ```bash
 python client/generate.py \
@@ -128,157 +113,62 @@ python client/generate.py \
   --set steps=25
 ```
 
-Outputs land in `out/`. Images are returned as base64 (S3 upload is not
-required).
+Outputs land in `out/`. The default client transport uses `/run` and status
+polling, which is appropriate for cache initialization and long video jobs.
+Use `--runsync` only for short, already-running workers.
 
-**Submission modes**
+## 7. Deploy updates
 
-- Default: `/run` + `/status` polling (blocks until done). Results are retained
-  for 30 minutes and no HTTP connection is held open across the job.
-- `--runsync`: literal sync endpoint; only reliable for short, warm jobs (the
-  connection is dropped after a few minutes; results retained 1 minute).
-- Retries: transient HTTP 429/5xx and pre-connection failures are retried
-  (`--retries`, `--retry-delay`). If a submission connection drops ambiguously
-  (the job may be running), the client does not resubmit unless you pass
-  `--retry-duplicate` - check the endpoint's **Requests** tab instead.
-- Timeouts: `--timeout` (overall wait, default 1800 s) and `--sync-timeout`
-  (`--runsync` only, default 900 s).
+When model files change:
 
-To sanity check the endpoint without a checkpoint installed, you can send the
-example workflow as-is with a raw `curl` against `/runsync` (it will return a
-pre-flight error listing available checkpoints if the file is missing - that
-error confirms the worker is alive and the volume is detected).
+1. Update the private repository and its `models/manifest.json` copy.
+2. Update the worker repository manifest if destinations, sizes, or hashes
+  changed so local client checks stay current.
+3. Restart or edit the endpoint so RunPod refreshes the selected cache.
+4. Restart workers before sending production traffic; the validator reads the
+  manifest from the new cached snapshot.
 
-## 8. Environment variable reference (worker)
+GitHub integration deploys on **new GitHub releases**, not plain pushes:
 
-| Variable                    | Default              | Purpose                                                |
-| --------------------------- | -------------------- | ------------------------------------------------------ |
-| `MODELS_ROOT`               | `/runpod-volume`     | model storage root; Pods use `/workspace`               |
-| `MANIFEST_PATH`             | `/models/manifest.json` | manifest baked into the image                        |
-| `MODELS_BOOTSTRAP`          | `true`               | disable with `false`                                   |
-| `BOOTSTRAP_STRICT`          | `false`              | fail worker startup on download errors                 |
-| `DOWNLOAD_ONLY`             | `false`              | pre-warm mode: bootstrap then exit                     |
-| `MODELS_VERIFY_ONLY`        | `false`              | audit volume contents without downloading              |
-| `MODELS_VERIFY_SHA`         | `false`              | also verify sha256 of existing files                   |
-| `MODELS_VERIFY_REQUIRE_ALL` | `false`              | audit exits 1 when files are missing                   |
-| `BOOTSTRAP_RETRIES`         | `3`                  | download retries per file                              |
-| `BOOTSTRAP_CONNECTIONS`     | `8`                  | parallel connections per file                          |
-| `BUCKET_ENDPOINT_URL`       | unset                | S3 output upload (phase 2); bucket name in the URL     |
-| `BUCKET_ACCESS_KEY_ID`      | unset                | S3 output credentials                                  |
-| `BUCKET_SECRET_ACCESS_KEY`  | unset                | S3 output credentials                                  |
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+# Create a GitHub release for the tag.
+```
+
+## 8. Environment variable reference
+
+| Variable | Default | Purpose |
+| -------- | ------- | ------- |
+| `HF_MODEL_ID` | unset | Exact private Hugging Face repository id from the endpoint Model field. Required. |
+| `CACHED_MODELS_VERIFY_SHA` | `false` | Hash cached files against manifest SHA-256 values. |
+| `COMFY_LOG_LEVEL` | `DEBUG` | ComfyUI logging level. |
+| `BUCKET_ENDPOINT_URL` | unset | Optional S3 output endpoint for phase 2. |
+| `BUCKET_ACCESS_KEY_ID` | unset | Optional S3 output credential. |
+| `BUCKET_SECRET_ACCESS_KEY` | unset | Optional S3 output credential. |
+
+The image sets `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` after cache
+validation so runtime code cannot silently download a model.
 
 ## 9. Fallback: deploy from a registry
 
-If the GitHub integration is unavailable or the repo does not appear in the
-Import list, build the image in GitHub Actions and deploy from a registry
-instead:
+If the GitHub integration is unavailable:
 
-1. Build and push to private Docker Hub or GHCR on release.
-2. **Serverless -> New Endpoint -> Import from Docker Registry**.
-3. Enter the image reference and configure the registry credentials.
-4. All other settings (volume, env vars, GPU) are identical to section 4.
-
-## 10. Session lifecycle & teardown (ephemeral volume)
-
-Network volumes are billed **hourly for as long as they exist**, even when no
-workers are attached. The standard tier is $0.07/GB/month for the first 1 TB
-($0.05/GB beyond), roughly:
-
-| Volume | Per hour | 8-hour day | Per month |
-| ------ | -------- | ---------- | --------- |
-| 50 GB  | ~$0.005  | ~$0.04     | $3.50     |
-| 100 GB | ~$0.010  | ~$0.08     | $7.00     |
-| 150 GB | ~$0.014  | ~$0.12     | $10.50    |
-
-Deleting the volume stops the charges immediately and **permanently erases all
-models on it**. To use a volume only for the day you are working:
-
-### Start of day
-
-1. Create the volume (wrapper around `terraform apply`, or run Terraform
-   directly):
-
-   ```powershell
-   pwsh -File scripts/session-up.ps1
-   ```
-
-   ```bash
-   set -a; . ./.env; set +a      # or use scripts/tf.ps1 on Windows
-   terraform -chdir=infra apply
-   terraform -chdir=infra output -raw volume_id
-   ```
-
-2. Attach it to the endpoint: **Endpoint -> Manage -> Edit Endpoint ->
-   Advanced -> Network Volumes -> select the volume -> Save Endpoint**.
-   Workers restart on the new volume.
-3. Pre-warm the models (see
-   [models.md -> Pre-warming](models.md#pre-warming-recommended-before-large-models))
-   or send your first job and let the worker download them.
-
-### End of day
-
-1. **Detach** the volume from the endpoint (same Advanced -> Network Volumes
-   screen, deselect, Save). This prevents the endpoint from pointing at a
-   deleted volume.
-2. Destroy the volume:
-
-   ```powershell
-   pwsh -File scripts/session-down.ps1   # asks you to type 'destroy'
-   ```
-
-   ```bash
-   set -a; . ./.env; set +a
-   terraform -chdir=infra destroy
-   ```
-
-3. Confirm it is gone under **Storage** in the console; billing stops at
-   deletion.
-
-A new volume gets a **new id**, so next session you attach it to the endpoint
-again and re-download models. If you work on this daily, keeping a volume alive
-($7/month at 100 GB) is usually cheaper than re-downloading Wan 2.2's ~38 GB
-every day.
-
-### Edge cases
-
-On Windows, any Terraform command can go through `scripts/tf.ps1` (it loads
-`.env`), e.g. `pwsh -File scripts/tf.ps1 state rm runpod_network_volume.models`.
-
-- **Volume deleted in the console/CLI but still in Terraform state:**
-
-  ```bash
-  terraform -chdir=infra state rm runpod_network_volume.models
-  ```
-
-- **Volume created outside Terraform and you now want to manage/destroy it**
-  (the provider supports import):
-
-  ```bash
-  terraform -chdir=infra import runpod_network_volume.models <volume-id>
-  ```
-
-- The Terraform state file is local and gitignored. Do not delete it while the
-  volume exists, or Terraform loses track of the resource.
-
-### No-Terraform alternative
-
-`runpodctl` manages the lifecycle without a state file (sizes 1-4000 GB):
-
-```bash
-runpodctl network-volume create --name comfyui-models --size 100 --data-center-id US-CA-2
-runpodctl network-volume list
-runpodctl network-volume delete <volume-id>
-```
+1. Build and push the image to a private Docker Hub or GHCR repository.
+2. Select **Serverless -> New Endpoint -> Import from Docker Registry**.
+3. Configure the image, private model in **Model**, `HF_MODEL_ID`, GPU, and
+  worker settings as above.
 
 ## Troubleshooting
 
-| Symptom                                             | Fix                                                                                                                  |
-| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Build "Testing" step fails                          | Open the build logs. The worker runs a GPU pre-flight at startup; if the failure is "GPU is not available", re-run the build or deploy via GitHub Actions + a registry (section 9). |
-| Jobs return "not found in checkpoints"              | The file is missing on the volume, or the workflow used the manifest `id` instead of the `dest` basename (the client now catches this; see [models.md](models.md#loader-values-use-the-dest-filename-not-the-id)). Add the file, redeploy, pre-warm, or run the verify audit. |
-| `NETWORK_VOLUME_DEBUG=true` logs "NOT MOUNTED"      | Attach the volume in endpoint Advanced settings and set workers to 0/1 to force new workers.                          |
-| Sizes mismatch / corrupt file                       | Set `MODELS_VERIFY_SHA=true`, run the audit, delete the file on the volume, re-run the bootstrap.                    |
-| Download 401/403                                    | Token env var missing/invalid for a gated or Civitai-auth model. Check the bootstrap log lines naming the env var.   |
-| `RemoteDisconnected` on submit                      | `--runsync` was used for a job longer than the HTTP connection allows. Re-submit with the default `/run` + poll transport; a dropped job may still be running - check the endpoint's Requests tab. `--retry-duplicate` allows resubmission (may run twice). |
-| Endpoint scaled to 0 after inactivity                | RunPod scales max workers down after 7 idle days; raise max workers in the console.                                   |
-| Creation warning `Could not find runpod.serverless.start() in your repo` | Advisory false negative: the handler ships in the base image, not this repo (RunPod reads the Dockerfile by path but checks the handler via GitHub code search, which cannot see inside the image). Confirm **Builds** reaches `Completed` and a test job runs; otherwise ignore. |
+| Symptom | Fix |
+| ------- | --- |
+| `HF_MODEL_ID is not set` | Add the exact repository id used in the endpoint Model field. |
+| Cached repository was not found | Verify the Model field, repository permissions, and Hugging Face token. |
+| `MISSING <dest>` | Upload the file to `models/<dest>` in the private repository and refresh the cache. |
+| `SIZE <dest>` or `SHA256 <dest>` | Make the cached file and manifest agree, then restart the endpoint. |
+| Jobs report a missing ComfyUI model | Use the `dest` basename in the workflow and confirm its category, such as `upscale_models/`. |
+| Build "Testing" fails | Inspect the build logs for GPU or base-image errors, then retry the build or use the registry fallback. |
+| `RemoteDisconnected` on submit | Use the default `/run` plus polling transport for long jobs. Check the Requests tab before retrying an ambiguous submission. |
+| Endpoint scaled down after inactivity | Raise the worker limits in the endpoint console before testing again. |
+| `Could not find runpod.serverless.start()` warning | This is an advisory GitHub inspection warning; the handler is supplied by the base image. Confirm that the build completes and a request runs. |

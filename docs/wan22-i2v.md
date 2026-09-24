@@ -9,7 +9,9 @@ ignored by the worker.
 
 ## Models to add (all from `Comfy-Org/Wan_2.2_ComfyUI_Repackaged`)
 
-Copy these into `models/manifest.json` (sizes and SHA-256 from Hugging Face):
+Add these entries to the worker repository's `models/manifest.json` and copy
+the matching files into the private Hugging Face repository under
+`models/<dest>` (sizes and SHA-256 from Hugging Face):
 
 ```json
 [
@@ -60,8 +62,8 @@ Copy these into `models/manifest.json` (sizes and SHA-256 from Hugging Face):
 
 Total: ~38 GB. The lightx2v LoRAs enable 4-step generation (optional but
 strongly recommended; without them the default workflow is 20+ steps and much
-slower). See [models.md](models.md) for the pre-warm procedure - do pre-warm
-before the first video job.
+slower). Add the complete set to the selected Cached Models repository before
+the first video job.
 
 ## GPU sizing
 
@@ -71,9 +73,9 @@ before the first video job.
 | fp8 + offload (`--lowvram`-style) | 24 GB  | 4090 works but slower; expect block-swap overhead.             |
 | GGUF Q4/Q5 quants                 | 24 GB  | Needs `RUN comfy-node-install comfyui-gguf` and Q4_K_M files.  |
 
-Change the endpoint GPU class under **Manage -> Edit Endpoint**; the network
-volume keeps the models. Endpoint execution timeout: raise to **1800 s** for
-video jobs.
+Change the endpoint GPU class under **Manage -> Edit Endpoint**. Keep
+`HF_MODEL_ID` synchronized with the repository selected in the endpoint's
+Model field. Raise the execution timeout to **1800 s** for video jobs.
 
 ## Workflow
 
@@ -139,7 +141,8 @@ BUCKET_SECRET_ACCESS_KEY=...
 
 ## Checklist
 
-- [ ] Manifest entries added, release deployed, volume pre-warmed with SHA audit.
+- [ ] Files uploaded to the private Cached Models repository and manifest copies synchronized.
+- [ ] `HF_MODEL_ID` matches the endpoint Model field; optional SHA audit completed.
 - [ ] Endpoint GPU raised to 48 GB (or GGUF quants added for 24 GB).
 - [ ] Execution timeout 1800 s; max workers kept low during bring-up.
 - [ ] Workflow uses core `SaveVideo`/`SaveWEBM` only.

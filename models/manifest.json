@@ -1,22 +1,70 @@
 {
   "version": 1,
-  "_comment": "Model manifest consumed by docker/bootstrap-models.sh. Paths in 'dest' are relative to <models-root>/models and must match the worker's volume layout: checkpoints/ (full checkpoints), unet/ (diffusion models), clip/ (text encoders), vae/, loras/. Only enabled entries are downloaded. Never put tokens here - use the env var named in auth.env. The 'id' is only a log label: workflow loader nodes reference the 'dest' basename. If this repo is public, keep only public URLs here; private/pre-signed URLs belong in a volume-local manifest (MANIFEST_PATH=/runpod-volume/config/manifest.json).",
+  "_comment": "Model inventory for the private Hugging Face repository selected on the endpoint. Paths in 'dest' are relative to the repository's models/ directory and must match the worker layout: checkpoints/, unet/, clip/, text_encoders/, vae/, loras/, controlnet/, upscale_models/. Only enabled entries are required at startup. URLs and auth are provenance metadata only; cached workers never download them. The 'id' is only a log label: workflow loader nodes reference the 'dest' basename. Keep this worker-repository copy synchronized with the private repository; the local client uses it for filename checks.",
   "models": [
     {
       "id": "4x-ultrasharp",
       "_comment": "Generic upscaler model",
-      "dest": "upscalers/4x-UltraSharp.pth",
-      "url": "https://huggingface.co/notkenski/upscalers/resolve/main/4x-UltraSharp.pth",
+      "dest": "upscale_models/4x-UltraSharp.pth",
+      "url": "https://huggingface.co/uwg/upscaler/resolve/main/ESRGAN/4x-UltraSharp.pth",
       "size_bytes": 66961958,
       "sha256": "a5812231fc936b42af08a5edba784195495d303d5b3248c24489ef0c4021fe01"
     },
     {
       "id": "4x-superscale",
       "_comment": "Generic upscaler model",
-      "dest": "upscalers/4x_NMKD-Superscale-SP_178000_G.pth",
-      "url": "https://huggingface.co/notkenski/upscalers/resolve/main/4x_NMKD-Superscale-SP_178000_G.pth",
+      "dest": "upscale_models/4x_NMKD-Superscale-SP_178000_G.pth",
+      "url": "https://huggingface.co/uwg/upscaler/resolve/main/ESRGAN/4x_NMKD-Superscale-SP_178000_G.pth",
       "size_bytes": 66958607,
       "sha256": "1d1b0078fe71446e0469d8d4df59e96baa80d83cda600d68237d655830821bcc"
+    },
+    {
+      "id": "4x-nickelbackfs",
+      "_comment": "Generic upscaler model",
+      "dest": "upscale_models/4x_NickelbackFS_72000_G.pth",
+      "url": "https://huggingface.co/uwg/upscaler/resolve/main/ESRGAN/4x_NickelbackFS_72000_G.pth",
+      "size_bytes": 67077535,
+      "sha256": "a177fe6c4c125ca0e5dd5d70453112ca17c9de62eb055bef70111edd220d07fa"
+    },
+    {
+      "id": "1x-skin-contrast-high-super-ultra-compact",
+      "_comment": "Texture utility model",
+      "dest": "upscale_models/1xSkinContrast-High-SuperUltraCompact.pth",
+      "url": "https://huggingface.co/freykun/frey_upscaler_collection/resolve/main/upscale_models/Textures%20x%20Utilities%20(no-upscale)/1xSkinContrast-High-SuperUltraCompact.pth",
+      "size_bytes": 181474,
+      "sha256": "7bbea62563203f099ea1cf60ce483ac60d22eb93d30f11be4cb1a229e3585e9e"
+    },
+    {
+      "id": "hand-yolov9c",
+      "_comment": "Hand detection model",
+      "dest": "ultralytics/bbox/hand_yolov9c.pt",
+      "url": "https://huggingface.co/JCscrew/RisuAI_asset_generator/resolve/main/models/ultralytics/bbox/hand_yolov9c.pt",
+      "size_bytes": 51633747,
+      "sha256": "6f116f686ef5942fa0c1d08db481b3d7622047a97847eccfb2a264f9ce9777f2"
+    },
+    {
+      "id": "face-yolov9c",
+      "_comment": "Face detection model",
+      "dest": "ultralytics/bbox/face_yolov9c.pt",
+      "url": "https://huggingface.co/JCscrew/RisuAI_asset_generator/resolve/main/models/ultralytics/bbox/face_yolov9c.pt",
+      "size_bytes": 51648019,
+      "sha256": "d02fe493c31e1bbc6450f4dc6f1db86a02a59322ff1f6d318da0661d72ddd084"
+    },
+    {
+      "id": "sam-vit-b-01ec64",
+      "_comment": "SAM utility model",
+      "dest": "sams/sam_vit_b_01ec64.pth",
+      "url": "https://huggingface.co/comfyuistudio/sam_vit_b_01ec64.pth/resolve/main/sam_vit_b_01ec64.pth",
+      "size_bytes": 375042383,
+      "sha256": "ec2df62732614e57411cdcf32a23ffdf28910380d03139ee0f4fcbe91eb8c912"
+    },
+    {
+      "id": "controlnet-union-sdxl-diffusion-pytorch-model-promax",
+      "_comment": "ControlNet Union SDXL 1.0 diffusion PyTorch model promax",
+      "dest": "controlnet/sdxl/diffusion_pytorch_model_promax.safetensors",
+      "url": "https://huggingface.co/xinsir/controlnet-union-sdxl-1.0/resolve/main/diffusion_pytorch_model_promax.safetensors",
+      "size_bytes": 2513342408,
+      "sha256": "9fae2e50cb431bfcbe05822b59ec2228df545ef27f711dea8949e9f4ed9f7cdc"
     },
     {
       "id": "z-image-turbo-vae-dependency",
@@ -45,7 +93,7 @@
         "env": "CIVITAI_TOKEN"
       },
       "size_bytes": 12566044072,
-      "sha256": "A46A82A99EF16EDC3DFBC7EDF336DE62C08155304FA9CE49A614131DAA95CE3E"
+      "sha256": "a46a82a99ef16edc3dfbc7edf336de62c08155304fa9ce49a614131daa95ce3e"
     },
     {
       "id": "cyberrealistic-pony-semi-realistic",
@@ -58,7 +106,7 @@
         "env": "CIVITAI_TOKEN"
       },
       "size_bytes": 6938041288,
-      "sha256": "1B25570A2849BB699DD78414758B8D95A4943130D02E6AE8B26222D68DAC4AF7"
+      "sha256": "1b25570a2849bb699dd78414758b8d95a4943130d02e6ae8b26222d68dac4af7"
     },
     {
       "id": "noobai-xl-nai-xl",
@@ -71,7 +119,7 @@
         "env": "CIVITAI_TOKEN"
       },
       "size_bytes": 7105350110,
-      "sha256": "EA349EEAE87CA8D25BA902C93810F7CA83E5C82F920EDF12F273AF004AE02819"
+      "sha256": "ea349eeae87ca8d25ba902c93810f7ca83e5c82f920edf12f273af004ae02819"
     },
     {
       "id": "prefect-pony-xl-v6",
@@ -84,11 +132,11 @@
         "env": "CIVITAI_TOKEN"
       },
       "size_bytes": 6938041160,
-      "sha256": "20FECC2EC6AF6CCFFD71F093BD37BB181898DFFD97B6480B73B9E269421A151B"
+      "sha256": "20fecc2ec6af6ccffd71f093bd37bb181898dffd97b6480b73b9e269421a151b"
     },
     {
       "id": "s3-presigned-example",
-      "_comment": "Public/CloudFront URLs are safe to commit. A pre-signed URL is a bearer secret and expires: keep it in a volume-local manifest instead (MANIFEST_PATH=/runpod-volume/config/manifest.json). Generate one with: aws s3 presign s3://bucket/key --expires-in 604800",
+      "_comment": "Source URL metadata example. The cached worker never downloads this URL; keep private source credentials out of the manifest.",
       "enabled": false,
       "dest": "checkpoints/from-my-bucket.safetensors",
       "url": "https://my-bucket.s3.us-east-1.amazonaws.com/models/from-my-bucket.safetensors?X-Amz-Algorithm=..."

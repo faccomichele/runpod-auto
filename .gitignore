@@ -53,12 +53,13 @@ out/
 
 # Local ComfyUI workflow exports. Workflows can embed prompts, personal input
 # filenames and other PII, so keep real ones out of git. Only sanitized
-# examples under workflows/examples/ are committed.
-/workflows/*.json
-/workflows/*.png
-/workflows/*.jpg
-/workflows/*.jpeg
-/workflows/*.webp
+# examples under workflows/examples/ are committed. Files already tracked are
+# unaffected by ignores - remove them with `git rm --cached` if needed.
+/workflows/**/*.json
+/workflows/**/*.png
+/workflows/**/*.jpg
+/workflows/**/*.jpeg
+/workflows/**/*.webp
 !/workflows/examples/
 !/workflows/examples/**
 
@@ -67,3 +68,7 @@ out/
 .env.*
 !.env.example
 *.local.json
+
+# Pod/worker logs (may contain endpoint ids, prompts, tokens)
+logs.txt
+*.log

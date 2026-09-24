@@ -106,13 +106,17 @@ video jobs.
 ## Sending a video job
 
 ```bash
-python client/generate.py --async \
+# default transport: /run + status polling (30-minute result retention)
+python client/generate.py \
   --workflow workflows/wan22_i2v.api.json \
   --image first_frame.png \
   --set prompt="slow dolly-in, gentle wind in the trees" \
   --set length=81 --set steps_high=4 --set steps_low=4 \
   --timeout 1800
 ```
+
+Video jobs run for minutes, so avoid `--runsync` (its HTTP connection is not
+held that long). Keep the endpoint's Execution timeout at 1800 s.
 
 ## Output delivery
 

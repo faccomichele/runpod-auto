@@ -1,27 +1,90 @@
 {
   "version": 1,
-  "_comment": "Model manifest consumed by docker/bootstrap-models.sh. Paths in 'dest' are relative to <models-root>/models and must match the worker's volume layout: checkpoints/ (full checkpoints), unet/ (diffusion models), clip/ (text encoders), vae/, loras/. Only enabled entries are downloaded. Never put tokens here - use the env var named in auth.env. If this repo is public, keep only public URLs here; private/pre-signed URLs belong in a volume-local manifest (MANIFEST_PATH=/runpod-volume/config/manifest.json).",
+  "_comment": "Model manifest consumed by docker/bootstrap-models.sh. Paths in 'dest' are relative to <models-root>/models and must match the worker's volume layout: checkpoints/ (full checkpoints), unet/ (diffusion models), clip/ (text encoders), vae/, loras/. Only enabled entries are downloaded. Never put tokens here - use the env var named in auth.env. The 'id' is only a log label: workflow loader nodes reference the 'dest' basename. If this repo is public, keep only public URLs here; private/pre-signed URLs belong in a volume-local manifest (MANIFEST_PATH=/runpod-volume/config/manifest.json).",
   "models": [
     {
-      "id": "sdxl-vae-fp16-fix",
-      "_comment": "Small, public smoke-test file. Keep enabled to verify volume + downloader end-to-end without any token.",
-      "dest": "vae/sdxl-vae-fp16-fix.safetensors",
-      "url": "https://huggingface.co/madebyollin/sdxl-vae-fp16-fix/resolve/main/sdxl_vae.safetensors",
-      "size_bytes": 334641162,
-      "sha256": "235745af8d86bf4a4c1b5b4f529868b37019a10f7c0b2e79ad0abca3a22bc6e1"
+      "id": "4x-ultrasharp",
+      "_comment": "Generic upscaler model",
+      "dest": "upscalers/4x-UltraSharp.pth",
+      "url": "https://huggingface.co/notkenski/upscalers/resolve/main/4x-UltraSharp.pth",
+      "size_bytes": 66961958,
+      "sha256": "a5812231fc936b42af08a5edba784195495d303d5b3248c24489ef0c4021fe01"
+    },
+    {
+      "id": "4x-superscale",
+      "_comment": "Generic upscaler model",
+      "dest": "upscalers/4x_NMKD-Superscale-SP_178000_G.pth",
+      "url": "https://huggingface.co/notkenski/upscalers/resolve/main/4x_NMKD-Superscale-SP_178000_G.pth",
+      "size_bytes": 66958607,
+      "sha256": "1d1b0078fe71446e0469d8d4df59e96baa80d83cda600d68237d655830821bcc"
+    },
+    {
+      "id": "z-image-turbo-vae-dependency",
+      "_comment": "Depency for cyberrealistic-z-image-turbo-catalyst",
+      "dest": "vae/ae.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors",
+      "size_bytes": 335304388,
+      "sha256": "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38"
+    },
+    {
+      "id": "z-image-turbo-text-encoder-dependency",
+      "_comment": "Depency for cyberrealistic-z-image-turbo-catalyst",
+      "dest": "text_encoders/qwen_3_4b.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors",
+      "size_bytes": 8044982048,
+      "sha256": "6c671498573ac2f7a5501502ccce8d2b08ea6ca2f661c458e708f36b36edfc5a"
+    },
+    {
+      "id": "cyberrealistic-z-image-turbo-catalyst",
+      "_comment": "CyberRealistic Z-Image Turbo Catalyst (ZImageTurbo checkpoint) - https://civitai.red/models/2513307/cyberrealistic-z-image-turbo-catalyst?modelVersionId=3049001",
+      "dest": "checkpoints/cyberrealisticZImage_v20NSFW.safetensors",
+      "url": "https://civitai.red/api/download/models/3049001?fileId=2927782",
+      "auth": {
+        "type": "query",
+        "param": "token",
+        "env": "CIVITAI_TOKEN"
+      },
+      "size_bytes": 12566044072,
+      "sha256": "A46A82A99EF16EDC3DFBC7EDF336DE62C08155304FA9CE49A614131DAA95CE3E"
+    },
+    {
+      "id": "cyberrealistic-pony-semi-realistic",
+      "_comment": "CyberRealistic Pony Semi-Realistic (Pony/SDXL checkpoint) - https://civitai.red/models/709404/cyberrealistic-pony-semi-realistic",
+      "dest": "checkpoints/cyberrealisticPony_semiRealV6.safetensors",
+      "url": "https://civitai.red/api/download/models/3007024?fileId=2886411",
+      "auth": {
+        "type": "query",
+        "param": "token",
+        "env": "CIVITAI_TOKEN"
+      },
+      "size_bytes": 6938041288,
+      "sha256": "1B25570A2849BB699DD78414758B8D95A4943130D02E6AE8B26222D68DAC4AF7"
+    },
+    {
+      "id": "noobai-xl-nai-xl",
+      "_comment": "NoobAI-XL (NAI-XL) (NoobAI checkpoint) - https://civitai.red/models/833294/noobai-xl-nai-xl",
+      "dest": "checkpoints/noobaiXLNAIXL_vPred10Version.safetensors",
+      "url": "https://civitai.red/api/download/models/1190596?fileId=1095888",
+      "auth": {
+        "type": "query",
+        "param": "token",
+        "env": "CIVITAI_TOKEN"
+      },
+      "size_bytes": 7105350110,
+      "sha256": "EA349EEAE87CA8D25BA902C93810F7CA83E5C82F920EDF12F273AF004AE02819"
     },
     {
       "id": "prefect-pony-xl-v6",
-      "_comment": "Prefect Pony XL v6 (Pony/SDXL checkpoint) - https://civitai.com/models/439889?modelVersionId=2114187. Pony models expect the score_9, score_8_up, score_7_up prefix. Civitai answers 401 without a token, so CIVITAI_TOKEN is required on the endpoint/pre-warm pod.",
+      "_comment": "Prefect Pony XL v6 (Pony/SDXL checkpoint) - https://civitai.red/models/439889?modelVersionId=2114187",
       "dest": "checkpoints/prefectPonyXL_v6.safetensors",
-      "url": "https://civitai.com/api/download/models/2114187",
+      "url": "https://civitai.red/api/download/models/2114187",
       "auth": {
         "type": "query",
         "param": "token",
         "env": "CIVITAI_TOKEN"
       },
       "size_bytes": 6938041160,
-      "sha256": "20fecc2ec6af6ccffd71f093bd37bb181898dffd97b6480b73b9e269421a151b"
+      "sha256": "20FECC2EC6AF6CCFFD71F093BD37BB181898DFFD97B6480B73B9E269421A151B"
     },
     {
       "id": "s3-presigned-example",

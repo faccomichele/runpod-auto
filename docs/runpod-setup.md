@@ -60,12 +60,18 @@ Alternatively use the optional Terraform module in [`infra/`](../infra/README.md
 | Active workers             | 0                                                                     |
 | Max workers                | 1 (raise after the first successful run)                              |
 | GPUs per worker            | 1                                                                     |
-| Idle timeout               | 5 s (use 10-30 s while iterating; you pay while idle)                 |
-| Execution timeout          | 600 s (raise to 1800 s for Wan 2.2 I2V)                               |
+| Idle timeout               | 5 s startup; raise to 300 s while iterating to keep the model staged   |
+| Execution timeout          | 1800 s (cold model staging alone can take several minutes)            |
 | FlashBoot                  | Enabled                                                               |
 | Container disk             | 30 GB (the base image is ~15 GB compressed)                           |
 | CUDA versions              | 12.8 and all newer (torch cu128 needs driver >= 570)                  |
 | Advanced -> Network Volume | select the volume from step 3                                         |
+
+> **First-job cost:** every new worker stages the checkpoint from the network
+> volume (about 6 minutes for the SDXL example), while the 25-step generation
+> itself takes ~11 s. Keep the worker warm (Idle timeout 300 s, or Active
+> workers 1) while iterating, and keep Execution timeout above cold-load plus
+> generation.
 
 4. Environment variables (endpoint -> Settings -> Environment Variables):
 
@@ -123,8 +129,20 @@ python client/generate.py \
 ```
 
 Outputs land in `out/`. Images are returned as base64 (S3 upload is not
-required); async results are retained by RunPod for 30 minutes, so download
-them promptly.
+required).
+
+**Submission modes**
+
+- Default: `/run` + `/status` polling (blocks until done). Results are retained
+  for 30 minutes and no HTTP connection is held open across the job.
+- `--runsync`: literal sync endpoint; only reliable for short, warm jobs (the
+  connection is dropped after a few minutes; results retained 1 minute).
+- Retries: transient HTTP 429/5xx and pre-connection failures are retried
+  (`--retries`, `--retry-delay`). If a submission connection drops ambiguously
+  (the job may be running), the client does not resubmit unless you pass
+  `--retry-duplicate` - check the endpoint's **Requests** tab instead.
+- Timeouts: `--timeout` (overall wait, default 1800 s) and `--sync-timeout`
+  (`--runsync` only, default 900 s).
 
 To sanity check the endpoint without a checkpoint installed, you can send the
 example workflow as-is with a raw `curl` against `/runsync` (it will return a
@@ -257,9 +275,10 @@ runpodctl network-volume delete <volume-id>
 | Symptom                                             | Fix                                                                                                                  |
 | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | Build "Testing" step fails                          | Open the build logs. The worker runs a GPU pre-flight at startup; if the failure is "GPU is not available", re-run the build or deploy via GitHub Actions + a registry (section 9). |
-| Jobs return "not found in checkpoints"              | The file is missing on the volume. Add it to the manifest, redeploy a release, pre-warm, or run the verify audit.    |
+| Jobs return "not found in checkpoints"              | The file is missing on the volume, or the workflow used the manifest `id` instead of the `dest` basename (the client now catches this; see [models.md](models.md#loader-values-use-the-dest-filename-not-the-id)). Add the file, redeploy, pre-warm, or run the verify audit. |
 | `NETWORK_VOLUME_DEBUG=true` logs "NOT MOUNTED"      | Attach the volume in endpoint Advanced settings and set workers to 0/1 to force new workers.                          |
 | Sizes mismatch / corrupt file                       | Set `MODELS_VERIFY_SHA=true`, run the audit, delete the file on the volume, re-run the bootstrap.                    |
 | Download 401/403                                    | Token env var missing/invalid for a gated or Civitai-auth model. Check the bootstrap log lines naming the env var.   |
+| `RemoteDisconnected` on submit                      | `--runsync` was used for a job longer than the HTTP connection allows. Re-submit with the default `/run` + poll transport; a dropped job may still be running - check the endpoint's Requests tab. `--retry-duplicate` allows resubmission (may run twice). |
 | Endpoint scaled to 0 after inactivity                | RunPod scales max workers down after 7 idle days; raise max workers in the console.                                   |
 | Creation warning `Could not find runpod.serverless.start() in your repo` | Advisory false negative: the handler ships in the base image, not this repo (RunPod reads the Dockerfile by path but checks the handler via GitHub code search, which cannot see inside the image). Confirm **Builds** reaches `Completed` and a test job runs; otherwise ignore. |

@@ -78,6 +78,12 @@ For an ephemeral, per-session volume (`scripts/session-up.ps1` /
 `scripts/session-down.ps1`) see
 [docs/runpod-setup.md -> Session lifecycle](docs/runpod-setup.md#10-session-lifecycle--teardown-ephemeral-volume).
 
+The client waits for jobs using `/run` + `/status` polling (30-minute result
+retention) - the safe default, since a cold worker can take minutes to stage
+models from the volume. `--runsync` uses the literal sync endpoint for short,
+warm jobs. Transient failures are retried (`--retries`, `--retry-delay`); see
+`--help` for `--timeout`, `--sync-timeout` and `--retry-duplicate`.
+
 ### Workflow authoring
 
 1. Build/test the workflow in a local ComfyUI that matches the base image
@@ -87,6 +93,10 @@ For an ephemeral, per-session volume (`scripts/session-up.ps1` /
    contain prompts/filenames you may not want in git).
 3. Map logical names to nodes in a `<name>.params.json` file; the client applies
    `--set` overrides through that map, so node ids are never hand-edited.
+4. Loader values use the manifest **`dest` basename** (e.g.
+   `prefectPonyXL_v6.safetensors`), never the manifest `id`. The client checks
+   model filenames against `models/manifest.json` before submitting
+   (`--no-model-check` to skip).
 
 ## Configuration
 

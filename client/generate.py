@@ -6,14 +6,14 @@ parameters (prompt, seed, checkpoint, ...) are mapped to nodes through a
 sibling ".params.json" file, so you never hand-edit node ids.
 
 Examples:
-    # text-to-image (sync; waits for the result)
+    # text-to-image (default transport: /run + status polling, blocks until done)
     python client/generate.py \
         --set prompt="a red fox in a snowy forest" \
         --set checkpoint=my_sdxl_model.safetensors \
         --set steps=30
 
-    # async (recommended for long jobs / video later)
-    python client/generate.py --async \
+    # literal /runsync (short, warm jobs only)
+    python client/generate.py --runsync \
         --set prompt="a red fox" \
         --set checkpoint=my_sdxl_model.safetensors
 
@@ -25,9 +25,20 @@ Environment:
     RUNPOD_ENDPOINT_ID   Endpoint id (or pass --endpoint)
     RUNPOD_API_KEY       RunPod API key (or pass --api-key)
 
+The default transport submits with /run and polls /status (30-minute result
+retention), so long jobs - a cold worker can spend minutes staging models from
+the network volume - are not cut off by HTTP connection limits. --runsync keeps
+one connection open and is only reliable for short, warm jobs. Transient
+failures are retried (--retries, --retry-delay); a submission whose connection
+drops ambiguously is not resubmitted unless --retry-duplicate is given.
+
 A repo-root .env file (copy .env.example) is loaded automatically; real process
 environment variables take precedence. Use --env-file to point at a different
 file, and --show-env to print the resolved configuration.
+
+Model-like parameter values (checkpoint, lora, vae, ...) are checked against the
+local models/manifest.json before submitting: a manifest id is not a filename,
+and loader nodes need the dest basename. Use --no-model-check to skip the check.
 
 Requires only the Python standard library (>= 3.8).
 """
@@ -36,9 +47,13 @@ from __future__ import annotations
 
 import argparse
 import base64
+import difflib
+import http.client
 import json
 import os
 import random
+import socket
+import ssl
 import sys
 import time
 import uuid
@@ -50,6 +65,13 @@ DEFAULT_API_BASE = "https://api.runpod.ai/v2"
 DEFAULT_WORKFLOW = "workflows/examples/t2i_sdxl.api.json"
 FAILED_STATUSES = {"FAILED", "CANCELLED", "TIMED_OUT", "ERROR"}
 MAX_SEED = 2 ** 32 - 1
+DEFAULT_TIMEOUT = 1800.0
+DEFAULT_SYNC_TIMEOUT = 900.0
+DEFAULT_RETRIES = 3
+DEFAULT_RETRY_DELAY = 2.0
+MAX_RETRY_DELAY = 30.0
+HTTP_RETRY_STATUSES = {429, 500, 502, 503, 504}
+DEFINITE_NETWORK_ERRORS = (ConnectionRefusedError, socket.gaierror, ssl.SSLError)
 
 
 class ApiError(RuntimeError):
@@ -119,6 +141,125 @@ def mask_secret(value: str | None) -> str:
     if len(value) <= 8:
         return "***"
     return f"{value[:4]}...{value[-4:]}"
+
+
+MODEL_EXTENSIONS = (".safetensors", ".ckpt", ".pt", ".pth", ".bin")
+DEFAULT_MANIFEST = os.path.join("models", "manifest.json")
+
+
+def resolve_manifest_path(explicit: str | None) -> Path | None:
+    if explicit:
+        return Path(explicit)
+    cwd_manifest = Path.cwd() / DEFAULT_MANIFEST
+    if cwd_manifest.is_file():
+        return cwd_manifest
+    repo_manifest = Path(__file__).resolve().parent.parent / DEFAULT_MANIFEST
+    return repo_manifest if repo_manifest.is_file() else None
+
+
+def manifest_lookup(manifest_path: Path):
+    """Map dest basenames and ids to (dest, enabled) from the local manifest."""
+    try:
+        manifest = load_json(manifest_path)
+    except ApiError:
+        return {}, {}
+
+    by_basename = {}
+    ids = {}
+    for entry in manifest.get("models") or []:
+        if not isinstance(entry, dict):
+            continue
+        dest = str(entry.get("dest") or "").strip()
+        if not dest:
+            continue
+        enabled = entry.get("enabled", True) is not False
+        by_basename[Path(dest).name] = (dest, enabled)
+        entry_id = str(entry.get("id") or "").strip()
+        if entry_id:
+            ids[entry_id] = (dest, enabled)
+    return by_basename, ids
+
+
+def model_filename(value) -> str | None:
+    if not isinstance(value, str):
+        return None
+    name = value.strip()
+    if name and Path(name).suffix.lower() in MODEL_EXTENSIONS:
+        return name
+    return None
+
+
+def validate_model_params(workflow: dict, params: dict, manifest_path: Path | None):
+    """Check model-like parameter values against the local model manifest.
+
+    Returns (errors, warnings). Errors are high-confidence mistakes (a manifest
+    id used as a filename, a case mismatch, a disabled entry); warnings are
+    values that are simply unknown locally (the manifest may be stale).
+    """
+    if manifest_path is None or not manifest_path.is_file():
+        return [], []
+
+    by_basename, ids = manifest_lookup(manifest_path)
+    if not by_basename:
+        return [], []
+
+    errors = []
+    warnings = []
+    for key, spec in params.items():
+        if not isinstance(spec, dict):
+            continue
+        node_id = str(spec.get("node"))
+        field = str(spec.get("input"))
+        node = workflow.get(node_id)
+        inputs = node.get("inputs") if isinstance(node, dict) else None
+        value = inputs.get(field) if isinstance(inputs, dict) else None
+        name = model_filename(value)
+        if name is None:
+            continue
+
+        base = Path(name).name
+        if base in by_basename:
+            dest, enabled = by_basename[base]
+            if enabled:
+                continue
+            errors.append(
+                f"'{base}' matches manifest entry '{dest}', which is disabled. "
+                f"Enable it in models/manifest.json, deploy a release, and pre-warm."
+            )
+            continue
+
+        stem = Path(base).stem
+        if stem in ids:
+            dest, enabled = ids[stem]
+            note = "" if enabled else " (that entry is currently disabled)"
+            errors.append(
+                f"'{name}' (parameter '{key}') matches the manifest id '{stem}', not a file on the volume.\n"
+                f"    Use the dest filename: {Path(dest).name}{note}\n"
+                f"    The manifest 'id' is only a label; ComfyUI uses the 'dest' basename."
+            )
+            continue
+
+        case_match = next((item for item in by_basename if item.lower() == base.lower()), None)
+        if case_match:
+            errors.append(
+                f"'{name}' (parameter '{key}') does not match the volume filename exactly "
+                f"(filenames are case-sensitive).\n    Did you mean: {case_match}"
+            )
+            continue
+
+        close = difflib.get_close_matches(base, list(by_basename), n=3, cutoff=0.85)
+        if close:
+            errors.append(
+                f"'{name}' (parameter '{key}') is not a model in the local manifest.\n"
+                f"    Closest matches: {', '.join(close)}"
+            )
+            continue
+
+        warnings.append(
+            f"parameter '{key}' references '{name}', which is not in the local manifest "
+            f"({manifest_path}); submitting anyway."
+        )
+    return errors, warnings
 
 
 def load_json(path: Path):
@@ -206,30 +347,87 @@ def build_images(params: dict, workflow: dict, image_paths):
     return images
 
 
-def http_json(url: str, payload=None, token=None, timeout=60):
+def _retry_delay(attempt: int, base: float) -> float:
+    return min(MAX_RETRY_DELAY, base * (2 ** attempt)) + random.uniform(0, base)
+
+
+def _classify_network_error(exc: Exception) -> str:
+    """Return 'definite' (request never reached the service) or 'ambiguous'."""
+    candidates = [exc]
+    reason = getattr(exc, "reason", None)
+    if reason is not None:
+        candidates.append(reason)
+    for item in candidates:
+        if isinstance(item, DEFINITE_NETWORK_ERRORS):
+            return "definite"
+    return "ambiguous"
+
+
+def http_json(url: str, payload=None, token=None, timeout=60, retries=0,
+              retry_delay=DEFAULT_RETRY_DELAY, retry_ambiguous=False):
+    """GET/POST JSON with retries for transient failures.
+
+    Retries HTTP 429/5xx and pre-connection errors. Ambiguous errors (the
+    request may have reached the service) are retried for GETs, but never for
+    submissions unless retry_ambiguous is set - a resubmitted job runs twice.
+    """
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     req = request.Request(url, data=data, method="POST" if data is not None else "GET")
     req.add_header("Content-Type", "application/json")
     if token:
         req.add_header("Authorization", f"Bearer {token}")
-    try:
-        with request.urlopen(req, timeout=timeout) as response:
-            body = response.read().decode("utf-8", "replace")
-    except error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")
-        raise ApiError(f"HTTP {exc.code} from {url}: {detail[:1000]}") from exc
-    except error.URLError as exc:
-        raise ApiError(f"request to {url} failed: {exc.reason}") from exc
-    try:
-        return json.loads(body)
-    except json.JSONDecodeError as exc:
-        raise ApiError(f"non-JSON response from {url}: {body[:500]}") from exc
 
-
-def poll_job(api_base, endpoint, token, job_id, interval, deadline):
-    status_url = f"{api_base}/{endpoint}/status/{job_id}"
+    attempt = 0
     while True:
-        response = http_json(status_url, token=token)
+        try:
+            with request.urlopen(req, timeout=timeout) as response:
+                body = response.read().decode("utf-8", "replace")
+            try:
+                return json.loads(body)
+            except json.JSONDecodeError as exc:
+                raise ApiError(f"non-JSON response from {url}: {body[:500]}") from exc
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")
+            if exc.code in HTTP_RETRY_STATUSES and attempt < retries:
+                delay = retry_delay
+                retry_after = exc.headers.get("Retry-After") if exc.headers else None
+                if retry_after:
+                    try:
+                        delay = float(retry_after)
+                    except ValueError:
+                        delay = retry_delay
+                delay = min(MAX_RETRY_DELAY, max(0.0, delay))
+                attempt += 1
+                log(f"HTTP {exc.code} from the API; retrying in {delay:.1f}s (attempt {attempt}/{retries})")
+                time.sleep(delay)
+                continue
+            raise ApiError(f"HTTP {exc.code} from {url}: {detail[:1000]}") from exc
+        except (error.URLError, http.client.HTTPException, TimeoutError, OSError) as exc:
+            kind = _classify_network_error(exc)
+            can_retry = kind == "definite" or payload is None or retry_ambiguous
+            if can_retry and attempt < retries:
+                delay = _retry_delay(attempt, retry_delay)
+                attempt += 1
+                log(f"network error ({exc}); retrying in {delay:.1f}s (attempt {attempt}/{retries})")
+                time.sleep(delay)
+                continue
+            if kind == "ambiguous" and payload is not None:
+                raise ApiError(
+                    f"the submission connection closed before a response ({exc}).\n"
+                    f"    The job may still be running - check the endpoint's Requests tab.\n"
+                    f"    Prefer the default /run + status transport for jobs that take minutes;\n"
+                    f"    pass --retry-duplicate if you accept that a retry may run the job twice."
+                ) from exc
+            reason = getattr(exc, "reason", exc)
+            raise ApiError(f"request to {url} failed: {reason}") from exc
+
+
+def poll_job(api_base, endpoint, token, job_id, interval, deadline,
+             retries=DEFAULT_RETRIES, retry_delay=DEFAULT_RETRY_DELAY):
+    status_url = f"{api_base}/{endpoint}/status/{job_id}"
+    current = min(interval, 0.5)
+    while True:
+        response = http_json(status_url, token=token, retries=retries, retry_delay=retry_delay)
         status = response.get("status")
         if status == "COMPLETED":
             return response
@@ -241,8 +439,10 @@ def poll_job(api_base, endpoint, token, job_id, interval, deadline):
                 f"timed out waiting for job {job_id} (status {status}). "
                 f"Poll it manually: {status_url}"
             )
-        log(f"status={status}, waiting {interval:.0f}s...")
-        time.sleep(interval)
+        wait = max(0.2, min(interval, current))
+        log(f"status={status}, waiting {wait:.1f}s...")
+        time.sleep(wait)
+        current = min(interval, current * 1.5)
 
 
 def download_url(url: str, out_path: Path) -> None:
@@ -321,10 +521,25 @@ def parse_args(argv):
     parser.add_argument("--api-base", default=DEFAULT_API_BASE, help="RunPod API base URL")
     parser.add_argument("--env-file", default=None,
                         help="env file to load (default: ./.env, then the repo-root .env)")
+    parser.add_argument("--manifest", default=None,
+                        help="model manifest for filename checks (default: ./models/manifest.json, then the repo root)")
+    parser.add_argument("--no-model-check", action="store_true",
+                        help="skip the model filename check against the local manifest")
+    parser.add_argument("--runsync", action="store_true",
+                        help="submit with the literal /runsync endpoint (short, warm jobs only; 1-minute result retention)")
     parser.add_argument("--async", dest="async_mode", action="store_true",
-                        help="submit with /run and poll /status (best for long jobs/video)")
-    parser.add_argument("--poll-interval", type=float, default=2.0, help="seconds between status polls")
-    parser.add_argument("--timeout", type=float, default=900.0, help="overall wait budget in seconds")
+                        help="alias of the default /run + status transport")
+    parser.add_argument("--poll-interval", type=float, default=2.0,
+                        help="max seconds between status polls (starts at 0.5s and backs off)")
+    parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT, help="overall wait budget in seconds")
+    parser.add_argument("--sync-timeout", type=float, default=DEFAULT_SYNC_TIMEOUT,
+                        help="HTTP timeout for --runsync submissions")
+    parser.add_argument("--retries", type=int, default=DEFAULT_RETRIES,
+                        help="retries for transient HTTP/network failures")
+    parser.add_argument("--retry-delay", type=float, default=DEFAULT_RETRY_DELAY,
+                        help="base delay for retry backoff (exponential + jitter, capped at 30s)")
+    parser.add_argument("--retry-duplicate", action="store_true",
+                        help="retry a submission after an ambiguous disconnect (may run the job twice)")
     parser.add_argument("--outdir", default="out", help="directory for generated files")
     parser.add_argument("--save-json", action="store_true", help="store the raw API response next to the outputs")
     parser.add_argument("--show-params", action="store_true", help="list available parameters and exit")
@@ -375,6 +590,19 @@ def main(argv=None) -> int:
     apply_overrides(workflow, params, args.assignments, args.seed)
     images = build_images(params, workflow, args.images)
 
+    if not args.no_model_check:
+        manifest_path = resolve_manifest_path(args.manifest)
+        model_errors, model_warnings = validate_model_params(workflow, params, manifest_path)
+        for warning in model_warnings:
+            log(f"warning: {warning}")
+        if model_errors:
+            bullets = "\n".join(f"  - {item}" for item in model_errors)
+            raise ApiError(
+                "model filename check failed:\n"
+                f"{bullets}\n"
+                "  Use --no-model-check to bypass (for example when using a volume-local manifest)."
+            )
+
     job_input = {"workflow": workflow}
     if images:
         job_input["images"] = images
@@ -382,23 +610,38 @@ def main(argv=None) -> int:
 
     deadline = time.time() + args.timeout
     job_id = str(uuid.uuid4())
+    retries = max(0, args.retries)
+    retry_delay = max(0.0, args.retry_delay)
 
-    if args.async_mode:
-        log(f"submitting job (async) to endpoint {endpoint}")
-        response = http_json(f"{args.api_base}/{endpoint}/run", payload, api_key)
-    else:
-        log(f"submitting job (sync) to endpoint {endpoint}")
+    if args.runsync:
+        log(f"submitting job (/runsync) to endpoint {endpoint}")
         response = http_json(
             f"{args.api_base}/{endpoint}/runsync",
             payload,
             api_key,
-            timeout=max(120.0, args.timeout),
+            timeout=max(120.0, args.sync_timeout),
+            retries=retries,
+            retry_delay=retry_delay,
+            retry_ambiguous=args.retry_duplicate,
+        )
+    else:
+        log(f"submitting job (/run + status polling) to endpoint {endpoint}")
+        response = http_json(
+            f"{args.api_base}/{endpoint}/run",
+            payload,
+            api_key,
+            retries=retries,
+            retry_delay=retry_delay,
+            retry_ambiguous=args.retry_duplicate,
         )
 
     job_id = response.get("id") or job_id
     if response.get("status") != "COMPLETED":
         log(f"job {job_id} queued; polling for completion")
-        response = poll_job(args.api_base, endpoint, api_key, job_id, args.poll_interval, deadline)
+        response = poll_job(
+            args.api_base, endpoint, api_key, job_id, args.poll_interval, deadline,
+            retries=retries, retry_delay=retry_delay,
+        )
 
     if args.save_json:
         outdir = Path(args.outdir)

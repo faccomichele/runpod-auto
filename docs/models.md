@@ -46,6 +46,29 @@ The filenames in the volume must match the names used inside the workflow
   size/SHA checks, so a crashed worker never leaves a half-written model under
   its final name. Existing files with matching size are skipped.
 
+### Loader values: use the dest filename, not the id
+
+Workflow loader nodes (`CheckpointLoaderSimple.ckpt_name`, `LoraLoader.lora_name`,
+`VAELoader.vae_name`, ...) must reference the **`dest` basename** - e.g.
+`prefectPonyXL_v6.safetensors` - not the manifest `id` (`prefect-pony-xl-v6`).
+The `id` is only a label for logs and documentation.
+
+`client/generate.py` checks model-like parameter values against the local
+`models/manifest.json` before submitting and fails fast with a suggestion when
+you use an `id`, the wrong case, or a disabled entry:
+
+```text
+[generate] ERROR: model filename check failed:
+  - 'prefect-pony-xl-v6.safetensors' (parameter 'checkpoint') matches the manifest id
+    'prefect-pony-xl-v6', not a file on the volume.
+    Use the dest filename: prefectPonyXL_v6.safetensors
+```
+
+Values that are simply unknown locally only produce a warning (the run
+continues), because the local manifest can be stale when you use a volume-local
+manifest. Use `--manifest <path>` to check against a different file, or
+`--no-model-check` to skip the check entirely.
+
 ### Adding a Civitai checkpoint
 
 1. Open the model on Civitai. The URL contains `?modelVersionId=NNNNNN` - copy

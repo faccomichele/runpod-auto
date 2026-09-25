@@ -18,21 +18,36 @@
 
 set -uo pipefail
 
+# Keep early validation errors in the same stream as the worker logs.
+exec 2>&1
+
 log() {
     printf '%s [entrypoint] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"
 }
 
 VALIDATOR="${CACHED_MODELS_VALIDATOR:-/usr/local/bin/validate-cached-models.sh}"
+startup_stage="initialization"
+
+report_failure() {
+    rc=$?
+    if [ "${rc}" -ne 0 ]; then
+        log "ERROR: startup failed during ${startup_stage} (exit ${rc})"
+    fi
+}
+
+trap report_failure EXIT
 
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 
 log "cached Hugging Face model: ${HF_MODEL_ID:-<unset>}"
 
 if [ ! -x "${VALIDATOR}" ]; then
+    startup_stage="validator check"
     log "WARN: cached-model validator not found at ${VALIDATOR}"
     exit 1
 fi
 
+startup_stage="cached model validation"
 log "validating cached models (manifest: selected repository/models/manifest.json)"
 "${VALIDATOR}"
 rc=$?
@@ -41,6 +56,7 @@ if [ "${rc}" -ne 0 ]; then
     exit "${rc}"
 fi
 
+startup_stage="worker handoff"
 log "cached model validation completed"
 log "starting worker (/start.sh)"
 exec /start.sh

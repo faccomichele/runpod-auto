@@ -20,12 +20,17 @@ ARG WORKER_COMFYUI_VERSION=5.10.0
 
 FROM runpod/worker-comfyui:${WORKER_COMFYUI_VERSION}-base
 
-# Install the custom node into the image so workers do not fetch it at startup.
-RUN comfy-node-install rgthree-comfy
-RUN comfy-node-install comfyui_controlnet_aux
-RUN comfy-node-install ComfyUI_essentials
-RUN comfy-node-install comfyui-impact-pack
-RUN comfy-node-install comfyui-impact-subpack
+# Install custom nodes into the image so workers do not fetch them at startup.
+RUN comfy-node-install \
+	rgthree-comfy \
+	comfyui_controlnet_aux \
+	comfyui_essentials \
+	comfyui-impact-pack \
+	comfyui-impact-subpack
+
+# Import every installed node during the build, where dependency failures are
+# visible instead of becoming an opaque worker exit at runtime.
+RUN cd /comfyui && timeout 300 python main.py --quick-test-for-ci --cpu
 
 COPY docker/entrypoint.sh /entrypoint.sh
 COPY docker/validate-cached-models.sh /usr/local/bin/validate-cached-models.sh

@@ -127,15 +127,26 @@ the endpoint cannot accept jobs with a partially available model set.
 
 ## Custom nodes
 
-The base image ships core ComfyUI only. Add custom nodes in the `Dockerfile`:
+The custom image preinstalls these nodes so workers do not download them at
+startup:
+
+- `rgthree-comfy`
+- `comfyui_controlnet_aux`
+- `comfyui_essentials`
+- `comfyui-impact-pack`
+- `comfyui-impact-subpack`
+
+Add further nodes in the `Dockerfile` with `comfy-node-install`:
 
 ```dockerfile
 RUN comfy-node-install comfyui-gguf
 ```
 
-Find names on the [Comfy Registry](https://registry.comfy.org). Custom nodes
-require a new image release, and local workflows must use the same node
-versions.
+Find names on the [Comfy Registry](https://registry.comfy.org). The Dockerfile
+runs `python main.py --quick-test-for-ci --cpu` after node installation, so
+dependency or import failures should stop the image build instead of appearing
+only as a runtime worker exit. Custom node changes require a new image release,
+and local workflows must use the same node versions.
 
 ## Local checks
 

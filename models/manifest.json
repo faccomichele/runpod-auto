@@ -51,6 +51,38 @@
       "sha256": "d02fe493c31e1bbc6450f4dc6f1db86a02a59322ff1f6d318da0661d72ddd084"
     },
     {
+      "id": "penisV2",
+      "_comment": "Penis detection model",
+      "dest": "ultralytics/bbox/penisV2.pt",
+      "url": "https://huggingface.co/art0123/Models_collection/resolve/main/bbox/penisV2.pt",
+      "size_bytes": 6211374,
+      "sha256": "01646ccd8b98be86181dcf8c08296b7fd0bc2d17d87395f55bea3dd5544a1253"
+    },
+    {
+      "id": "pussy_best_v3",
+      "_comment": "Pussy detection model",
+      "dest": "ultralytics/bbox/pussy_best_v3.pt",
+      "url": "https://huggingface.co/art0123/Models_collection/resolve/main/bbox/pussy_best_v3.pt",
+      "size_bytes": 22503214,
+      "sha256": "44eb2c5896c74af5a06d6b2cba0fdbf7a1effc547cda9873f45d2b6e8c48a752"
+    },
+    {
+      "id": "female_breast_v3",
+      "_comment": "Female breast detection model",
+      "dest": "ultralytics/bbox/female_breast_v3.pt",
+      "url": "https://huggingface.co/art0123/Models_collection/resolve/main/bbox/female_breast_v3.pt",
+      "size_bytes": 22492590,
+      "sha256": "0f02ae30cc95dd839b14e38b16479382a47b35754c5d3a3cfd76ec872d49eea2"
+    },
+    {
+      "id": "adetailerFootYolov8x_v20_271746",
+      "_comment": "Adetailer Foot Yolov8x v20 model",
+      "dest": "adetailer/adetailerFootYolov8x_v20_271746.pt",
+      "url": "https://huggingface.co/datasets/Blankse/SegsmakerAdetailer/resolve/main/adetailerFootYolov8x_v20_271746.pt",
+      "size_bytes": 136712062,
+      "sha256": "9f39f32ab83b43002ca466605603b6c6dcff124ecfb23dab1c74c36ecb95cb4b"
+    },
+    {
       "id": "sam-vit-b-01ec64",
       "_comment": "SAM utility model",
       "dest": "sams/sam_vit_b_01ec64.pth",
@@ -65,6 +97,14 @@
       "url": "https://huggingface.co/xinsir/controlnet-union-sdxl-1.0/resolve/main/diffusion_pytorch_model_promax.safetensors",
       "size_bytes": 2513342408,
       "sha256": "9fae2e50cb431bfcbe05822b59ec2228df545ef27f711dea8949e9f4ed9f7cdc"
+    },
+    {
+      "id": "sam3.1-multiplex-fp16",
+      "_comment": "SAM 3.1 multiplex FP16 model",
+      "dest": "checkpoints/sam3.1_multiplex_fp16.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/sam3.1/resolve/main/checkpoints/sam3.1_multiplex_fp16.safetensors",
+      "size_bytes": 1745546848,
+      "sha256": "9ba99c92703c2e8b4f47de2d34a539bb8e18923049e238b780d70dbe6368eb03"
     },
     {
       "id": "z-image-turbo-vae-dependency",

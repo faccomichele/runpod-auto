@@ -3,17 +3,17 @@
 ## Cached repository inventory
 
 The worker validates the files in the private Hugging Face model repository,
-not the source URLs in the manifest. Keep the repository tree and both copies
-of `models/manifest.json` synchronized:
+not the source URLs in the manifest. Keep the repository tree and its root
+`manifest.json` synchronized:
 
 ```text
-models/<dest>
+<dest>
 ```
 
 Use local files to populate exact manifest metadata before uploading them:
 
 ```powershell
-$file = Get-Item .\models\checkpoints\my_model.safetensors
+$file = Get-Item .\checkpoints\my_model.safetensors
 $file.Length
 Get-FileHash $file -Algorithm SHA256
 ```

@@ -56,9 +56,9 @@ if [ ! -d "${snapshot_root}" ]; then
     exit 1
 fi
 
-manifest_path="${snapshot_root}/models/manifest.json"
+manifest_path="${snapshot_root}/manifest.json"
 if [ ! -f "${manifest_path}" ]; then
-    warn "cached repository '${HF_MODEL_ID}' is missing models/manifest.json"
+    warn "cached repository '${HF_MODEL_ID}' is missing manifest.json"
     exit 1
 fi
 
@@ -171,7 +171,7 @@ while IFS=$'\x1f' read -r mid dest size sha; do
     dest="${dest%$'\r'}"
     [ -z "${dest:-}" ] && continue
 
-    target="${snapshot_root}/models/${dest}"
+    target="${snapshot_root}/${dest}"
     if [ ! -f "${target}" ]; then
         warn "MISSING ${dest} (cached repository '${HF_MODEL_ID}')"
         missing=$((missing + 1))

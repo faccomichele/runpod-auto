@@ -48,7 +48,7 @@ if [ ! -x "${VALIDATOR}" ]; then
 fi
 
 startup_stage="cached model validation"
-log "validating cached models (manifest: selected repository/models/manifest.json)"
+log "validating cached models (manifest: selected repository/manifest.json)"
 "${VALIDATOR}"
 rc=$?
 if [ "${rc}" -ne 0 ]; then

@@ -9,9 +9,9 @@ ignored by the worker.
 
 ## Models to add (all from `Comfy-Org/Wan_2.2_ComfyUI_Repackaged`)
 
-Add these entries to the worker repository's `models/manifest.json` and copy
-the matching files into the private Hugging Face repository under
-`models/<dest>` (sizes and SHA-256 from Hugging Face):
+Add these entries to the private collection repository's root `manifest.json`
+and place the matching files in the private Hugging Face repository at
+`<dest>` (sizes and SHA-256 from Hugging Face):
 
 ```json
 [
@@ -141,7 +141,7 @@ BUCKET_SECRET_ACCESS_KEY=...
 
 ## Checklist
 
-- [ ] Files uploaded to the private Cached Models repository and manifest copies synchronized.
+- [ ] Files and the root `manifest.json` uploaded to the private Cached Models repository.
 - [ ] `HF_MODEL_ID` matches the endpoint Model field; optional SHA audit completed.
 - [ ] Endpoint GPU raised to 48 GB (or GGUF quants added for 24 GB).
 - [ ] Execution timeout 1800 s; max workers kept low during bring-up.

@@ -1,15 +1,17 @@
 runpod_worker_comfy:
   base_path: __CACHED_MODELS_ROOT__
-  checkpoints: models/checkpoints/
-  clip: models/clip/
-  clip_vision: models/clip_vision/
-  configs: models/configs/
-  controlnet: models/controlnet/
-  diffusion_models: models/diffusion_models/
-  embeddings: models/embeddings/
-  loras: models/loras/
-  model_patches: models/model_patches/
-  text_encoders: models/text_encoders/
-  upscale_models: models/upscale_models/
-  vae: models/vae/
-  unet: models/unet/
+  checkpoints: checkpoints/
+  clip: clip/
+  clip_vision: clip_vision/
+  configs: configs/
+  controlnet: controlnet/
+  diffusion_models: diffusion_models/
+  embeddings: embeddings/
+  loras: loras/
+  model_patches: model_patches/
+  sams: sams/
+  text_encoders: text_encoders/
+  ultralytics: ultralytics/
+  upscale_models: upscale_models/
+  vae: vae/
+  unet: unet/

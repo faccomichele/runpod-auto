@@ -20,20 +20,23 @@ model files and manifest using the layout described in
 [Models: RunPod Cached Models](models.md):
 
 ```text
-models/
-  manifest.json
-  checkpoints/
-  clip/
-  loras/
-  text_encoders/
-  unet/
-  upscale_models/
-  vae/
+manifest.json
+checkpoints/
+clip/
+controlnet/
+loras/
+sams/
+text_encoders/
+ultralytics/
+unet/
+upscale_models/
+vae/
 ```
 
 Upload each file at the exact path represented by its manifest `dest` value.
-Keep the manifest copy in this worker repository and the private model
-repository synchronized. Never place access tokens in either manifest.
+Keep the root `manifest.json` in the private model repository; this worker
+repository intentionally has no duplicate model manifest. Never place access
+tokens in the manifest.
 
 Create a Hugging Face fine-grained access token from **Settings -> Access
 Tokens** with read access to this model repository. Copy the token when it is
@@ -121,11 +124,9 @@ Use `--runsync` only for short, already-running workers.
 
 When model files change:
 
-1. Update the private repository and its `models/manifest.json` copy.
-2. Update the worker repository manifest if destinations, sizes, or hashes
-  changed so local client checks stay current.
-3. Restart or edit the endpoint so RunPod refreshes the selected cache.
-4. Restart workers before sending production traffic; the validator reads the
+1. Update the private repository and its root `manifest.json`.
+2. Restart or edit the endpoint so RunPod refreshes the selected cache.
+3. Restart workers before sending production traffic; the validator reads the
   manifest from the new cached snapshot.
 
 GitHub integration deploys on **new GitHub releases**, not plain pushes:
@@ -165,7 +166,7 @@ If the GitHub integration is unavailable:
 | ------- | --- |
 | `HF_MODEL_ID is not set` | Add the exact repository id used in the endpoint Model field. |
 | Cached repository was not found | Verify the Model field, repository permissions, and Hugging Face token. |
-| `MISSING <dest>` | Upload the file to `models/<dest>` in the private repository and refresh the cache. |
+| `MISSING <dest>` | Upload the file to `<dest>` in the private repository and refresh the cache. |
 | `SIZE <dest>` or `SHA256 <dest>` | Make the cached file and manifest agree, then restart the endpoint. |
 | Jobs report a missing ComfyUI model | Use the `dest` basename in the workflow and confirm its category, such as `upscale_models/`. |
 | Build "Testing" fails | Inspect the build logs for GPU or base-image errors, then retry the build or use the registry fallback. |

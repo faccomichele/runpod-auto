@@ -15,7 +15,7 @@ local laptop                    RunPod build                    RunPod endpoint
 ------------                    -----------                    --------------
 ComfyUI                         GitHub release                 private HF model
   Workflow > Export (API)  -->  worker-comfyui image       -->  repository cache
-workflows/*.api.json            + cache validator                  models/<dest>
+workflows/*.api.json            + cache validator                  manifest.json + <dest>
                                                       |
 client/generate.py  -------- HTTPS ------------------------------>  ComfyUI worker
   prompt/seed/image                                             validates, loads, runs
@@ -39,7 +39,7 @@ docker/
   entrypoint.sh             cache validation gate -> stock /start.sh
   validate-cached-models.sh read-only cache and manifest validator
   extra_model_paths.yaml    ComfyUI model path template
-models/manifest.json        model inventory and destinations
+private model repo           root manifest.json + model directories
 workflows/examples/         sanitized example workflow + parameter map
 client/generate.py          CLI: submit, poll, save outputs (stdlib only)
 .env.example                template for tokens/ids (copy to .env; .env is ignored)
@@ -52,7 +52,7 @@ docs/
 ## Quickstart
 
 ```bash
-# 1. Upload the model files and matching models/manifest.json to a private
+# 1. Upload the model files and matching root manifest.json to a private
 #    Hugging Face model repository. See docs/models.md.
 
 # 2. Push this worker repo to GitHub and follow docs/runpod-setup.md to connect
@@ -90,7 +90,7 @@ Transient failures are retried (`--retries`, `--retry-delay`); see `--help` for
    `--set` overrides through that map, so node ids are never hand-edited.
 4. Loader values use the manifest **`dest` basename** (e.g.
    `prefectPonyXL_v6.safetensors`), never the manifest `id`. The client checks
-   model filenames against `models/manifest.json` before submitting
+  model filenames against the local model manifest before submitting
    (`--no-model-check` to skip).
 
 ## Configuration
@@ -105,9 +105,11 @@ Worker environment variables (endpoint -> Settings):
 | `BUCKET_ACCESS_KEY_ID` / `BUCKET_SECRET_ACCESS_KEY` | S3 output credentials |
 
 The image enables `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` after the
-cache check. Runtime validation reads `models/manifest.json` from the selected
-cached repository; the worker-repository copy is used only for local client
-filename checks. There is no runtime model download fallback.
+cache check. Runtime validation reads the root `manifest.json` from the
+selected cached repository. The client auto-discovers `manifest.json` in the
+current directory or the sibling `comfyui-personal-collection` repository;
+use `--manifest` or `MODEL_MANIFEST_PATH` to override discovery. There is no
+runtime model download fallback.
 
 Full reference: [docs/runpod-setup.md](docs/runpod-setup.md#8-environment-variable-reference-worker).
 
@@ -131,7 +133,7 @@ Full reference: [docs/runpod-setup.md](docs/runpod-setup.md#8-environment-variab
 ```bash
 bash -n docker/entrypoint.sh docker/validate-cached-models.sh
 python -m py_compile client/generate.py
-python -m json.tool models/manifest.json > /dev/null
+python -m json.tool ../comfyui-personal-collection/manifest.json > /dev/null
 ```
 
 For endpoint validation, set `HF_MODEL_ID` to the exact RunPod Model value and

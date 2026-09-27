@@ -12,26 +12,29 @@ access when the repository is private.
 
 ## Cached repository layout
 
-Mirror the worker's model tree under `models/` in the private repository. Keep
-the manifest copy alongside the files so the repository is self-describing:
+Keep the model files and the manifest at the private repository root so the
+repository is self-describing:
 
 ```text
-models/
-  manifest.json
-  checkpoints/
-  clip/
-  controlnet/
-  diffusion_models/
-  embeddings/
-  loras/
-  model_patches/
-  text_encoders/
-  unet/
-  upscale_models/
-  vae/
+manifest.json
+checkpoints/
+clip/
+clip_vision/
+configs/
+controlnet/
+diffusion_models/
+embeddings/
+loras/
+model_patches/
+sams/
+text_encoders/
+ultralytics/
+unet/
+upscale_models/
+vae/
 ```
 
-The paths in `dest` are relative to this `models/` directory:
+The paths in `dest` are relative to the repository root:
 
 | Manifest `dest` prefix | ComfyUI loader nodes |
 | ---------------------- | -------------------- |
@@ -42,6 +45,8 @@ The paths in `dest` are relative to this `models/` directory:
 | `vae/`                 | `VAELoader` |
 | `loras/`               | `LoraLoader`, `LoraLoaderModelOnly` |
 | `controlnet/`           | `ControlNetLoader` |
+| `sams/`                 | SAM loader nodes |
+| `ultralytics/`          | Ultralytics and detector nodes |
 | `upscale_models/`       | `UpscaleModelLoader` |
 
 At startup the worker resolves the selected repository's `refs/main` snapshot
@@ -51,14 +56,16 @@ files into another directory.
 
 ## Manifest schema
 
-The private model repository's `models/manifest.json` is the runtime inventory.
-The worker repository keeps the same file for local client validation. Keep the
-two copies synchronized. The current structure is preserved:
+The private model repository's root `manifest.json` is the runtime inventory.
+The worker repository does not duplicate this file. From the runpod-auto root,
+the client discovers `./manifest.json` first and then
+`../comfyui-personal-collection/manifest.json`; use `--manifest` or
+`MODEL_MANIFEST_PATH` to select another copy. The current structure is preserved:
 
 | Field        | Required | Description |
 | ------------ | -------- | ----------- |
 | `id`          | no       | Human-readable log label; defaults to `dest`. |
-| `dest`        | yes      | Safe relative path below the cached repository's `models/` directory. |
+| `dest`        | yes      | Safe relative path below the cached repository root. |
 | `url`         | no       | Source or provenance URL. It is not fetched by the cached worker. |
 | `enabled`     | no       | `false` excludes the entry; default is `true`. |
 | `size_bytes`  | no       | Expected exact size; a mismatch fails startup. |
@@ -98,14 +105,12 @@ to check another manifest, or `--no-model-check` to skip the client check.
 
 ## Add or update models
 
-1. Add the asset under `models/<dest>` in the private Hugging Face repository.
-2. Add or update the matching entry in the worker repository's
-   `models/manifest.json`, including `size_bytes` and preferably `sha256`.
-3. Copy the updated manifest into the private repository at
-   `models/manifest.json`.
-4. Commit/push the private repository changes and update the endpoint so RunPod
+1. Add the asset at `<dest>` in the private Hugging Face repository.
+2. Add or update the matching entry in the private repository's root
+   `manifest.json`, including `size_bytes` and preferably `sha256`.
+3. Commit/push the private repository changes and update the endpoint so RunPod
    refreshes the selected cache snapshot.
-5. Restart the endpoint or its workers so the validator reads the new snapshot.
+4. Restart the endpoint or its workers so the validator reads the new snapshot.
 
 If the cached snapshot still contains an older file, the validator reports the
 size or SHA mismatch and refuses to start. It does not download a replacement.
@@ -117,8 +122,8 @@ The entrypoint performs these checks before `/start.sh`:
 1. `HF_MODEL_ID` is set to an `org/repository` id.
 2. RunPod has mounted the selected repository cache and its `refs/main` points
    to a valid snapshot.
-3. The snapshot contains `models/manifest.json`.
-4. Every enabled manifest entry exists under `snapshot/models/<dest>`.
+3. The snapshot contains root `manifest.json`.
+4. Every enabled manifest entry exists under `snapshot/<dest>`.
 5. Every declared `size_bytes` value matches.
 6. SHA-256 values match when `CACHED_MODELS_VERIFY_SHA=true`.
 
@@ -154,7 +159,7 @@ Run these checks before publishing a worker image:
 
 ```bash
 bash -n docker/entrypoint.sh docker/validate-cached-models.sh
-python -m json.tool models/manifest.json > /dev/null
+python -m json.tool ../comfyui-personal-collection/manifest.json > /dev/null
 python -m py_compile client/generate.py
 ```
 
@@ -169,7 +174,7 @@ should appear.
 | ------- | ----------- |
 | `HF_MODEL_ID is not set` | Set it to the exact `org/repository` value configured in the endpoint Model field. |
 | Cached repository was not found | The endpoint Model field is empty, points to another repository, or the cache has not been prepared yet. Check the repository id and access token. |
-| `MISSING <dest>` | Upload the file to `models/<dest>` in the private repository and refresh the endpoint cache. |
+| `MISSING <dest>` | Upload the file to `<dest>` in the private repository and refresh the endpoint cache. |
 | `SIZE <dest>` or `SHA256 <dest>` | Update the manifest to the actual file, or replace the cached file with the intended revision. The worker will not repair it. |
 | Worker refuses to start after a manifest change | Ensure the private repository snapshot contains the updated manifest and files, then refresh the endpoint cache. |
 | ComfyUI says a model is missing | Check that the workflow uses the `dest` basename and that its category matches the repository path, such as `upscale_models/`. |

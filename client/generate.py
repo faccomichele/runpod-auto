@@ -36,9 +36,9 @@ A repo-root .env file (copy .env.example) is loaded automatically; real process
 environment variables take precedence. Use --env-file to point at a different
 file, and --show-env to print the resolved configuration.
 
-Model-like parameter values (checkpoint, lora, vae, ...) are checked against the
-local models/manifest.json before submitting: a manifest id is not a filename,
-and loader nodes need the dest basename. Use --no-model-check to skip the check.
+Model-like parameter values (checkpoint, lora, vae, ...) are checked against a
+local model manifest before submitting: a manifest id is not a filename, and
+loader nodes need the dest basename. Use --no-model-check to skip the check.
 
 Requires only the Python standard library (>= 3.8).
 """
@@ -144,17 +144,21 @@ def mask_secret(value: str | None) -> str:
 
 
 MODEL_EXTENSIONS = (".safetensors", ".ckpt", ".pt", ".pth", ".bin")
-DEFAULT_MANIFEST = os.path.join("models", "manifest.json")
+DEFAULT_MANIFEST = "manifest.json"
 
 
 def resolve_manifest_path(explicit: str | None) -> Path | None:
     if explicit:
         return Path(explicit)
-    cwd_manifest = Path.cwd() / DEFAULT_MANIFEST
-    if cwd_manifest.is_file():
-        return cwd_manifest
-    repo_manifest = Path(__file__).resolve().parent.parent / DEFAULT_MANIFEST
-    return repo_manifest if repo_manifest.is_file() else None
+    env_manifest = os.environ.get("MODEL_MANIFEST_PATH")
+    if env_manifest:
+        return Path(env_manifest)
+
+    candidates = [
+        Path.cwd() / DEFAULT_MANIFEST,
+        Path(__file__).resolve().parent.parent.parent / "comfyui-personal-collection" / DEFAULT_MANIFEST,
+    ]
+    return next((candidate for candidate in candidates if candidate.is_file()), None)
 
 
 def manifest_lookup(manifest_path: Path):
@@ -224,7 +228,7 @@ def validate_model_params(workflow: dict, params: dict, manifest_path: Path | No
                 continue
             errors.append(
                 f"'{base}' matches manifest entry '{dest}', which is disabled. "
-                f"Enable it in models/manifest.json, deploy a release, and refresh the endpoint cache."
+                f"Enable it in the model manifest, deploy a release, and refresh the endpoint cache."
             )
             continue
 
@@ -522,7 +526,7 @@ def parse_args(argv):
     parser.add_argument("--env-file", default=None,
                         help="env file to load (default: ./.env, then the repo-root .env)")
     parser.add_argument("--manifest", default=None,
-                        help="model manifest for filename checks (default: ./models/manifest.json, then the repo root)")
+                        help="model manifest for filename checks (default: ./manifest.json, then the sibling collection; MODEL_MANIFEST_PATH also overrides discovery)")
     parser.add_argument("--no-model-check", action="store_true",
                         help="skip the model filename check against the local manifest")
     parser.add_argument("--runsync", action="store_true",

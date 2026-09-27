@@ -8,7 +8,7 @@
 #   /entrypoint.sh        validates the cache, then execs /start.sh
 #   /usr/local/bin/validate-cached-models.sh
 #                         read-only manifest/cache validator
-#   cached repository/models/manifest.json runtime model inventory
+#   cached repository/manifest.json runtime model inventory
 #
 # Model weights are supplied by RunPod Cached Models and are never downloaded
 # or baked into this image. Before bumping WORKER_COMFYUI_VERSION, make sure the

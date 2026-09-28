@@ -113,9 +113,22 @@ done
 run_validator "${test_root}/missing_manifest" org/repo
 assert_case missing_manifest 40 CACHED_MODELS_MANIFEST_MISSING
 [[ "${CASE_OUTPUT}" == *"diagnostic snapshot_root_item=checkpoints"* ]] || exit 1
+[[ "${CASE_OUTPUT}" == *"diagnostic manifest_search=none"* ]] || exit 1
 item_count="$(printf '%s\n' "${CASE_OUTPUT}" | grep -c 'diagnostic snapshot_root_item=' || true)"
 [ "${item_count}" -le 40 ] || exit 1
 [[ "${CASE_OUTPUT}" == *"diagnostic snapshot_root=truncated limit=40"* ]] || exit 1
+
+make_case nested_manifest
+mkdir -p "${test_root}/nested_manifest/cache/models--org--repo/snapshots/${snapshot_hash}/models"
+printf '%s' '{"version":1,"models":[{"id":"nested","dest":"checkpoints/example.safetensors","size_bytes":13,"url":"https://example.test/?token=secret-value","auth":{"token":"secret-value"}}]}' > \
+    "${test_root}/nested_manifest/cache/models--org--repo/snapshots/${snapshot_hash}/models/manifest.json"
+run_validator "${test_root}/nested_manifest" org/repo
+assert_case nested_manifest 40 CACHED_MODELS_MANIFEST_MISSING
+[[ "${CASE_OUTPUT}" == *"diagnostic manifest_search=found"* ]] || exit 1
+[[ "${CASE_OUTPUT}" == *"relative=models/manifest.json"* ]] || exit 1
+[[ "${CASE_OUTPUT}" == *"manifest_candidate_preview"* ]] || exit 1
+[[ "${CASE_OUTPUT}" == *"<redacted>"* ]] || exit 1
+[[ "${CASE_OUTPUT}" != *"secret-value"* ]] || exit 1
 
 make_case malformed_manifest
 printf '%s' 'not-json' > "${test_root}/malformed_manifest/cache/models--org--repo/snapshots/${snapshot_hash}/manifest.json"

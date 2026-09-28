@@ -73,6 +73,82 @@ list_directory() {
     esac
 }
 
+diagnose_manifest_layout() {
+    local root="$1"
+    local expected="$2"
+    local candidate_list
+    local candidate_count
+    local candidate
+    local relative_path
+    local file_type
+    local file_size
+    local preview
+    local preview_rc
+    local search_limit=$((DIAGNOSTIC_LIMIT + 1))
+
+    candidate_list="$(find "${root}" -maxdepth 5 -name 'manifest.json' -print 2>/dev/null | sort | head -n "${search_limit}")"
+    if [ -z "${candidate_list}" ]; then
+        log "diagnostic manifest_search=none expected=${expected} max_depth=5"
+        return
+    fi
+
+    candidate_count="$(printf '%s\n' "${candidate_list}" | sed '/^$/d' | wc -l | tr -d '[:space:]')"
+    log "diagnostic manifest_search=found expected=${expected} candidates=${candidate_count} max_depth=5"
+
+    while IFS= read -r candidate; do
+        [ -n "${candidate}" ] || continue
+        relative_path="${candidate#${root}/}"
+        file_type="$(stat -c '%F' "${candidate}" 2>/dev/null || printf '%s' 'unknown')"
+        file_size="$(stat -c '%s' "${candidate}" 2>/dev/null || printf '%s' 'unknown')"
+        log "diagnostic manifest_candidate path=${candidate} relative=${relative_path} type=${file_type// /_} bytes=${file_size}"
+
+        preview="$("${PY}" - "${candidate}" <<'PYEOF'
+import json
+import re
+import sys
+
+path = sys.argv[1]
+sensitive_key = re.compile(
+    r"(?:auth|authorization|credential|key|password|secret|token|url|uri)",
+    re.IGNORECASE,
+)
+
+def sanitize(value, key=""):
+    if key and sensitive_key.search(key):
+        return "<redacted>"
+    if isinstance(value, dict):
+        return {str(name): sanitize(item, str(name)) for name, item in value.items()}
+    if isinstance(value, list):
+        return [sanitize(item) for item in value]
+    return value
+
+try:
+    with open(path, "r", encoding="utf-8") as manifest_file:
+        manifest = json.load(manifest_file)
+except Exception:
+    print("invalid_json")
+    sys.exit(1)
+
+preview = json.dumps(sanitize(manifest), ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+limit = 4096
+if len(preview) > limit:
+    preview = preview[:limit] + "...<truncated>"
+print(preview.replace("\r", "\\r").replace("\n", "\\n"))
+PYEOF
+        )"
+        preview_rc=$?
+        if [ "${preview_rc}" -eq 0 ]; then
+            log "diagnostic manifest_candidate_preview relative=${relative_path} content=${preview}"
+        else
+            log "diagnostic manifest_candidate_preview relative=${relative_path} content=${preview:-invalid_json}"
+        fi
+    done <<< "${candidate_list}"
+
+    if [ "${candidate_count}" -gt "${DIAGNOSTIC_LIMIT}" ] 2>/dev/null; then
+        log "diagnostic manifest_search=truncated limit=${DIAGNOSTIC_LIMIT}"
+    fi
+}
+
 HF_MODEL_ID="${HF_MODEL_ID:-}"
 HF_CACHE_ROOT="${HF_CACHE_ROOT:-/runpod-volume/huggingface-cache/hub}"
 CONFIG_TEMPLATE="${CACHED_MODELS_CONFIG_TEMPLATE:-/etc/runpod/extra_model_paths.yaml.template}"
@@ -234,6 +310,7 @@ fi
 
 if [ ! -f "${manifest_path}" ]; then
     list_directory "snapshot_root" "${snapshot_root}"
+    diagnose_manifest_layout "${snapshot_root}" "${manifest_path}"
     fail "${EXIT_MANIFEST}" "CACHED_MODELS_MANIFEST_MISSING" "root_manifest_not_found"
 fi
 

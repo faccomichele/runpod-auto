@@ -213,7 +213,7 @@ the `FAIL code=` record and use its `cache_root`, `snapshot_root`, and
 | ------- | ----------- |
 | `HF_MODEL_ID is not set` | Set it to the exact `org/repository` value configured in the endpoint Model field. |
 | Cached repository was not found | The endpoint Model field is empty, points to another repository, or the cache has not been prepared yet. Check the repository id and access token. |
-| `CACHED_MODELS_MANIFEST_MISSING` | Inspect the preceding `snapshot_root_item=` records. Upload root `manifest.json` to the selected repository and refresh the Cached Models snapshot. |
+| `CACHED_MODELS_MANIFEST_MISSING` | Inspect the preceding `snapshot_root_item=` and `manifest_search=` records. The validator searches up to five directory levels for nested `manifest.json` files and logs their path, type, size, and a bounded redacted JSON preview. If the search is empty, the mounted snapshot contains no manifest; upload root `manifest.json` and refresh the Cached Models snapshot. |
 | `MISSING <dest>` | Upload the file to `<dest>` in the private repository and refresh the endpoint cache. |
 | `SIZE <dest>` or `SHA256 <dest>` | Update the manifest to the actual file, or replace the cached file with the intended revision. The worker will not repair it. |
 | Only `exit 1` is visible | Open the endpoint's retained **Endpoint Logs** rather than the terminated worker view; the detailed `FAIL code=` record is emitted before exit. |

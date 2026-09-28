@@ -28,10 +28,18 @@ log() {
 VALIDATOR="${CACHED_MODELS_VALIDATOR:-/usr/local/bin/validate-cached-models.sh}"
 startup_stage="initialization"
 
+fail_startup() {
+    local exit_code="$1"
+    local failure_code="$2"
+    local reason="$3"
+    log "FAIL code=${failure_code} exit=${exit_code} stage=${startup_stage} reason=${reason} repository=${HF_MODEL_ID:-<unset>} validator=${VALIDATOR} action=refusing_to_start"
+    exit "${exit_code}"
+}
+
 report_failure() {
     rc=$?
     if [ "${rc}" -ne 0 ]; then
-        log "ERROR: startup failed during ${startup_stage} (exit ${rc})"
+        log "ERROR: startup_failed stage=${startup_stage} exit=${rc} repository=${HF_MODEL_ID:-<unset>} action=container_will_exit"
     fi
 }
 
@@ -43,8 +51,7 @@ log "cached Hugging Face model: ${HF_MODEL_ID:-<unset>}"
 
 if [ ! -x "${VALIDATOR}" ]; then
     startup_stage="validator check"
-    log "WARN: cached-model validator not found at ${VALIDATOR}"
-    exit 1
+    fail_startup 70 "ENTRYPOINT_VALIDATOR_MISSING" "validator_not_executable"
 fi
 
 startup_stage="cached model validation"
@@ -52,7 +59,7 @@ log "validating cached models (manifest: selected repository/manifest.json)"
 "${VALIDATOR}"
 rc=$?
 if [ "${rc}" -ne 0 ]; then
-    log "WARN: cached model validation failed (exit ${rc}); refusing to start worker"
+    log "FAIL code=CACHED_MODELS_VALIDATION_FAILED exit=${rc} stage=${startup_stage} repository=${HF_MODEL_ID:-<unset>} validator=${VALIDATOR} action=refusing_to_start details=see_cached_models_failure_record"
     exit "${rc}"
 fi
 

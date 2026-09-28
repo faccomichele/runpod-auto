@@ -102,7 +102,18 @@ include a resolved snapshot and lines like:
 ```
 
 The worker exits with a warning if the repository is missing, a file is absent,
-or a declared size does not match. It does not download a replacement.
+or a declared size does not match. It emits a `FAIL code=` record with the
+failure class, exit code, repository id, and relevant cache paths before it
+exits. It does not download a replacement.
+
+Use the endpoint's **Logs** tab, which retains worker stdout/stderr, when
+diagnosing startup failures. The local **Worker Logs** view is temporary and
+may disappear after an unhealthy worker terminates. The validator uses these
+exit classes: `10` configuration/runtime, `20` cache/repository, `30` snapshot,
+`40` manifest, `50` model contents, `60` rendered configuration, and `70`
+missing entrypoint validator. Indefinite retention requires a writable network
+volume or an external logging service; the Docker image does not persist logs
+after the container exits.
 
 ## 6. First request
 
@@ -166,8 +177,10 @@ If the GitHub integration is unavailable:
 | ------- | --- |
 | `HF_MODEL_ID is not set` | Add the exact repository id used in the endpoint Model field. |
 | Cached repository was not found | Verify the Model field, repository permissions, and Hugging Face token. |
+| `CACHED_MODELS_MANIFEST_MISSING` | Use the preceding `snapshot_root_item=` lines to inspect the cached snapshot, then upload root `manifest.json` and refresh the Cached Models snapshot. |
 | `MISSING <dest>` | Upload the file to `<dest>` in the private repository and refresh the cache. |
 | `SIZE <dest>` or `SHA256 <dest>` | Make the cached file and manifest agree, then restart the endpoint. |
+| Only `exit 1` is visible | Open the endpoint **Logs** tab for retained stdout/stderr; the terminated worker view may no longer contain the detailed failure record. |
 | Jobs report a missing ComfyUI model | Use the `dest` basename in the workflow and confirm its category, such as `upscale_models/`. |
 | Build "Testing" fails | Inspect the build logs for GPU or base-image errors, then retry the build or use the registry fallback. |
 | `RemoteDisconnected` on submit | Use the default `/run` plus polling transport for long jobs. Check the Requests tab before retrying an ambiguous submission. |

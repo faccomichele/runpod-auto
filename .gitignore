@@ -70,5 +70,4 @@ out/
 *.local.json
 
 # Pod/worker logs (may contain endpoint ids, prompts, tokens)
-logs.txt
-*.log
+logs/

@@ -127,8 +127,30 @@ The entrypoint performs these checks before `/start.sh`:
 5. Every declared `size_bytes` value matches.
 6. SHA-256 values match when `CACHED_MODELS_VERIFY_SHA=true`.
 
-Any failure logs a `WARN` line and exits nonzero. ComfyUI does not start, and
-the endpoint cannot accept jobs with a partially available model set.
+Any failure emits a structured `FAIL` record with a stable code, exit status,
+repository id, and resolved cache paths, then exits nonzero. Missing repository,
+snapshot, or manifest failures also include a bounded listing of the relevant
+directory. ComfyUI does not start, and the endpoint cannot accept jobs with a
+partially available model set.
+
+### Startup failure codes
+
+| Exit code | Failure code | Meaning |
+| --------- | ------------ | ------- |
+| `10` | `CACHED_MODELS_CONFIG_*` or `CACHED_MODELS_RUNTIME_MISSING` | Worker configuration or required runtime tool is missing or invalid. |
+| `20` | `CACHED_MODELS_CACHE_ROOT_MISSING` or `CACHED_MODELS_REPOSITORY_MISSING` | The Cached Models mount or selected repository was not found. |
+| `30` | `CACHED_MODELS_SNAPSHOT_*` | `refs/main` is invalid or its snapshot directory is missing. |
+| `40` | `CACHED_MODELS_MANIFEST_*` | Root `manifest.json` is missing or invalid. |
+| `50` | `CACHED_MODELS_MODEL_MISMATCH` | An enabled model is missing or fails size/SHA validation. |
+| `60` | `CACHED_MODELS_OUTPUT_FAILED` | The ComfyUI path configuration could not be rendered or installed. |
+| `70` | `ENTRYPOINT_VALIDATOR_MISSING` | The validator is not executable in the image. |
+
+The entrypoint also emits `CACHED_MODELS_VALIDATION_FAILED` while preserving
+the validator's exit code. Use the **Endpoint Logs** view for retained stdout
+and stderr. The terminated worker's local **Worker Logs** are temporary and can
+disappear with the worker; indefinite retention requires a writable network
+volume or an external logging service. Docker cannot add the detailed failure
+text to Runpod's separate unhealthy-worker summary.
 
 ## Custom nodes
 
@@ -159,14 +181,16 @@ Run these checks before publishing a worker image:
 
 ```bash
 bash -n docker/entrypoint.sh docker/validate-cached-models.sh
+bash tests/test-cached-models.sh
 python -m json.tool ../comfyui-personal-collection/manifest.json > /dev/null
 python -m py_compile client/generate.py
 ```
 
 For an endpoint check, set `HF_MODEL_ID` to the exact value in the RunPod
-Model field, send a small representative workflow, and inspect the startup
-logs for the resolved snapshot and `present` summary. No download command
-should appear.
+Model field, send a small representative workflow, and inspect **Endpoint
+Logs** for the resolved snapshot and `present` summary. On failure, search for
+the `FAIL code=` record and use its `cache_root`, `snapshot_root`, and
+`manifest_path` fields. No download command should appear.
 
 ## Troubleshooting
 
@@ -174,7 +198,9 @@ should appear.
 | ------- | ----------- |
 | `HF_MODEL_ID is not set` | Set it to the exact `org/repository` value configured in the endpoint Model field. |
 | Cached repository was not found | The endpoint Model field is empty, points to another repository, or the cache has not been prepared yet. Check the repository id and access token. |
+| `CACHED_MODELS_MANIFEST_MISSING` | Inspect the preceding `snapshot_root_item=` records. Upload root `manifest.json` to the selected repository and refresh the Cached Models snapshot. |
 | `MISSING <dest>` | Upload the file to `<dest>` in the private repository and refresh the endpoint cache. |
 | `SIZE <dest>` or `SHA256 <dest>` | Update the manifest to the actual file, or replace the cached file with the intended revision. The worker will not repair it. |
+| Only `exit 1` is visible | Open the endpoint's retained **Endpoint Logs** rather than the terminated worker view; the detailed `FAIL code=` record is emitted before exit. |
 | Worker refuses to start after a manifest change | Ensure the private repository snapshot contains the updated manifest and files, then refresh the endpoint cache. |
 | ComfyUI says a model is missing | Check that the workflow uses the `dest` basename and that its category matches the repository path, such as `upscale_models/`. |

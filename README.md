@@ -132,12 +132,18 @@ Full reference: [docs/runpod-setup.md](docs/runpod-setup.md#8-environment-variab
 
 ```bash
 bash -n docker/entrypoint.sh docker/validate-cached-models.sh
+bash tests/test-cached-models.sh
 python -m py_compile client/generate.py
 python -m json.tool ../comfyui-personal-collection/manifest.json > /dev/null
 ```
 
 For endpoint validation, set `HF_MODEL_ID` to the exact RunPod Model value and
-inspect the worker logs for the resolved snapshot and a zero-missing summary.
+inspect the endpoint **Logs** for the resolved snapshot and a zero-missing
+summary. Startup failures emit a `FAIL code=` record with the exit class and
+cache paths before the worker refuses to start. No download command should
+appear. The endpoint log stream is the retained source for this diagnostic;
+terminated worker-local logs may disappear, and Docker cannot persist them
+after the container exits without an external or writable-volume sink.
 
 ## Credits
 

@@ -108,9 +108,12 @@ to check another manifest, or `--no-model-check` to skip the client check.
 1. Add the asset at `<dest>` in the private Hugging Face repository.
 2. Add or update the matching entry in the private repository's root
    `manifest.json`, including `size_bytes` and preferably `sha256`.
-3. Commit/push the private repository changes and update the endpoint so RunPod
-   refreshes the selected cache snapshot.
-4. Restart the endpoint or its workers so the validator reads the new snapshot.
+3. Commit/push the private repository changes. Prefer a new repository
+   id/version when the existing Cached Models entry remains pinned to an older
+   snapshot.
+4. Set both the endpoint **Model** value and `HF_MODEL_ID` to the new id, or
+   ask RunPod support to invalidate the existing cache entry, then restart
+   workers so the validator reads the new snapshot.
 
 If the cached snapshot still contains an older file, the validator reports the
 size or SHA mismatch and refuses to start. It does not download a replacement.
@@ -126,6 +129,13 @@ The entrypoint performs these checks before `/start.sh`:
 4. Every enabled manifest entry exists under `snapshot/<dest>`.
 5. Every declared `size_bytes` value matches.
 6. SHA-256 values match when `CACHED_MODELS_VERIFY_SHA=true`.
+
+If `CACHED_MODELS_FETCH_FRESH_MANIFEST=true` is explicitly enabled, the
+validator also fetches the private repository's root `manifest.json` using a
+separately injected endpoint `HF_TOKEN`. This is a metadata-only diagnostic:
+the remote manifest is never used as a model source, and no model files are
+downloaded or copied. A missing token, remote fetch failure, or manifest
+mismatch stops startup.
 
 Any failure emits a structured `FAIL` record with a stable code, exit status,
 repository id, and resolved cache paths, then exits nonzero. Missing repository,
@@ -144,6 +154,11 @@ partially available model set.
 | `50` | `CACHED_MODELS_MODEL_MISMATCH` | An enabled model is missing or fails size/SHA validation. |
 | `60` | `CACHED_MODELS_OUTPUT_FAILED` | The ComfyUI path configuration could not be rendered or installed. |
 | `70` | `ENTRYPOINT_VALIDATOR_MISSING` | The validator is not executable in the image. |
+
+The optional diagnostic uses exit `10` for missing or invalid runtime-token
+configuration and exit `40` for remote manifest fetch, parse, or mismatch
+failures (`CACHED_MODELS_REMOTE_MANIFEST_*` and
+`CACHED_MODELS_MANIFEST_STALE`).
 
 The entrypoint also emits `CACHED_MODELS_VALIDATION_FAILED` while preserving
 the validator's exit code. Use the **Endpoint Logs** view for retained stdout
@@ -202,5 +217,8 @@ the `FAIL code=` record and use its `cache_root`, `snapshot_root`, and
 | `MISSING <dest>` | Upload the file to `<dest>` in the private repository and refresh the endpoint cache. |
 | `SIZE <dest>` or `SHA256 <dest>` | Update the manifest to the actual file, or replace the cached file with the intended revision. The worker will not repair it. |
 | Only `exit 1` is visible | Open the endpoint's retained **Endpoint Logs** rather than the terminated worker view; the detailed `FAIL code=` record is emitted before exit. |
-| Worker refuses to start after a manifest change | Ensure the private repository snapshot contains the updated manifest and files, then refresh the endpoint cache. |
+| `CACHED_MODELS_MANIFEST_STALE` | The optional fresh-manifest check found that RunPod's mounted snapshot is older than Hugging Face `main`. Use a new repository id/version or ask RunPod to invalidate the Cached Models entry; re-entering the same id is not a reliable refresh. |
+| `CACHED_MODELS_REMOTE_MANIFEST_TOKEN_MISSING` | Set `CACHED_MODELS_FETCH_FRESH_MANIFEST=true` only when a separate endpoint secret `HF_TOKEN` is configured. The Cached Models credential is not automatically exposed to the worker. |
+| `CACHED_MODELS_REMOTE_MANIFEST_FETCH_FAILED` | The metadata-only remote request failed. Check outbound access and the endpoint token, then refresh the Cached Models snapshot; the worker does not download model files as a fallback. |
+| Worker refuses to start after a manifest change | Ensure the private HF repository snapshot contains the updated manifest and files. Prefer a new repository id/version or obtain RunPod cache invalidation support, then redeploy the endpoint. |
 | ComfyUI says a model is missing | Check that the workflow uses the `dest` basename and that its category matches the repository path, such as `upscale_models/`. |

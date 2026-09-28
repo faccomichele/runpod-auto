@@ -37,22 +37,24 @@ run_validator() {
     local case_root="$1"
     local model_id="$2"
     local verify_sha="${3:-false}"
+    local fetch_manifest="${4:-false}"
+    local token="${5:-}"
+    local remote_url="${6:-}"
     local config_path="${case_root}/rendered.yaml"
+    local -a validator_env=(
+        "HF_CACHE_ROOT=${case_root}/cache"
+        "CACHED_MODELS_VERIFY_SHA=${verify_sha}"
+        "CACHED_MODELS_CONFIG_TEMPLATE=${case_root}/template.yaml"
+        "CACHED_MODELS_CONFIG_PATH=${config_path}"
+        "CACHED_MODELS_FETCH_FRESH_MANIFEST=${fetch_manifest}"
+        "HF_TOKEN=${token}"
+        "CACHED_MODELS_REMOTE_MANIFEST_URL=${remote_url}"
+    )
 
     if [ "${model_id}" = "__unset__" ]; then
-        CASE_OUTPUT="$(env -u HF_MODEL_ID \
-            HF_CACHE_ROOT="${case_root}/cache" \
-            CACHED_MODELS_VERIFY_SHA="${verify_sha}" \
-            CACHED_MODELS_CONFIG_TEMPLATE="${case_root}/template.yaml" \
-            CACHED_MODELS_CONFIG_PATH="${config_path}" \
-            bash "${validator}" 2>&1)"
+        CASE_OUTPUT="$(env -u HF_MODEL_ID "${validator_env[@]}" bash "${validator}" 2>&1)"
     else
-        CASE_OUTPUT="$(HF_MODEL_ID="${model_id}" \
-            HF_CACHE_ROOT="${case_root}/cache" \
-            CACHED_MODELS_VERIFY_SHA="${verify_sha}" \
-            CACHED_MODELS_CONFIG_TEMPLATE="${case_root}/template.yaml" \
-            CACHED_MODELS_CONFIG_PATH="${config_path}" \
-            bash "${validator}" 2>&1)"
+        CASE_OUTPUT="$(env "${validator_env[@]}" "HF_MODEL_ID=${model_id}" bash "${validator}" 2>&1)"
     fi
     CASE_STATUS=$?
 }
@@ -137,6 +139,75 @@ printf '%s' '{"models":[{"dest":"checkpoints/example.safetensors","size_bytes":1
     "${test_root}/sha_mismatch/cache/models--org--repo/snapshots/${snapshot_hash}/manifest.json"
 run_validator "${test_root}/sha_mismatch" org/repo true
 assert_case sha_mismatch 50 CACHED_MODELS_MODEL_MISMATCH
+
+make_case fallback_disabled
+run_validator "${test_root}/fallback_disabled" org/repo false false unused-token \
+    "file://${test_root}/fallback_disabled/does-not-exist.json"
+assert_case fallback_disabled 40 CACHED_MODELS_MANIFEST_MISSING
+[[ "${CASE_OUTPUT}" != *"remote manifest"* ]] || exit 1
+
+make_case fallback_without_token
+run_validator "${test_root}/fallback_without_token" org/repo false true "" \
+    "file://${test_root}/fallback_without_token/does-not-exist.json"
+assert_case fallback_without_token 10 CACHED_MODELS_REMOTE_MANIFEST_TOKEN_MISSING
+
+make_case fallback_invalid_url
+run_validator "${test_root}/fallback_invalid_url" org/repo false true secret-token \
+    "https://example.invalid/manifest.json"
+assert_case fallback_invalid_url 10 CACHED_MODELS_CONFIG_INVALID
+[[ "${CASE_OUTPUT}" != *"secret-token"* ]] || exit 1
+
+make_case fallback_missing_cached_manifest
+write_manifest "${test_root}/fallback_missing_cached_manifest"
+cp "${test_root}/fallback_missing_cached_manifest/cache/models--org--repo/snapshots/${snapshot_hash}/manifest.json" \
+    "${test_root}/fallback_missing_cached_manifest/remote-manifest.json"
+rm "${test_root}/fallback_missing_cached_manifest/cache/models--org--repo/snapshots/${snapshot_hash}/manifest.json"
+run_validator "${test_root}/fallback_missing_cached_manifest" org/repo false true secret-token \
+    "file://${test_root}/fallback_missing_cached_manifest/remote-manifest.json"
+assert_case fallback_missing_cached_manifest 40 CACHED_MODELS_MANIFEST_MISSING
+[[ "${CASE_OUTPUT}" == *"remote manifest fetched source=repository_main metadata_only=true"* ]] || exit 1
+[[ "${CASE_OUTPUT}" != *"secret-token"* ]] || exit 1
+
+make_case fallback_matching_manifest
+write_manifest "${test_root}/fallback_matching_manifest"
+cp "${test_root}/fallback_matching_manifest/cache/models--org--repo/snapshots/${snapshot_hash}/manifest.json" \
+    "${test_root}/fallback_matching_manifest/remote-manifest.json"
+run_validator "${test_root}/fallback_matching_manifest" org/repo true true secret-token \
+    "file://${test_root}/fallback_matching_manifest/remote-manifest.json"
+if [ "${CASE_STATUS}" -ne 0 ]; then
+    printf 'FAIL fallback_matching_manifest: expected exit 0, got %s\n%s\n' \
+        "${CASE_STATUS}" "${CASE_OUTPUT}" >&2
+    exit 1
+fi
+[[ "${CASE_OUTPUT}" == *"remote_manifest_comparison=match"* ]] || exit 1
+[[ "${CASE_OUTPUT}" != *"secret-token"* ]] || exit 1
+printf 'PASS fallback_matching_manifest (exit 0)\n'
+
+make_case fallback_stale_manifest
+write_manifest "${test_root}/fallback_stale_manifest"
+printf '%s' '{"models":[{"id":"new-entry","dest":"text_encoders/qwen_3_4b.safetensors","size_bytes":13}]}' > \
+    "${test_root}/fallback_stale_manifest/remote-manifest.json"
+run_validator "${test_root}/fallback_stale_manifest" org/repo false true secret-token \
+    "file://${test_root}/fallback_stale_manifest/remote-manifest.json"
+assert_case fallback_stale_manifest 40 CACHED_MODELS_MANIFEST_STALE
+[[ "${CASE_OUTPUT}" == *"remote_manifest_comparison=mismatch"* ]] || exit 1
+[[ "${CASE_OUTPUT}" != *"secret-token"* ]] || exit 1
+
+make_case fallback_fetch_failure
+run_validator "${test_root}/fallback_fetch_failure" org/repo false true secret-token \
+    "file://${test_root}/fallback_fetch_failure/does-not-exist.json"
+assert_case fallback_fetch_failure 40 CACHED_MODELS_REMOTE_MANIFEST_FETCH_FAILED
+[[ "${CASE_OUTPUT}" != *"secret-token"* ]] || exit 1
+
+make_case fallback_does_not_repair_missing_file
+write_manifest "${test_root}/fallback_does_not_repair_missing_file"
+cp "${test_root}/fallback_does_not_repair_missing_file/cache/models--org--repo/snapshots/${snapshot_hash}/manifest.json" \
+    "${test_root}/fallback_does_not_repair_missing_file/remote-manifest.json"
+rm "${test_root}/fallback_does_not_repair_missing_file/cache/models--org--repo/snapshots/${snapshot_hash}/checkpoints/example.safetensors"
+run_validator "${test_root}/fallback_does_not_repair_missing_file" org/repo false true secret-token \
+    "file://${test_root}/fallback_does_not_repair_missing_file/remote-manifest.json"
+assert_case fallback_does_not_repair_missing_file 50 CACHED_MODELS_MODEL_MISMATCH
+[[ "${CASE_OUTPUT}" == *"remote_manifest_comparison=match"* ]] || exit 1
 
 make_case valid
 write_manifest "${test_root}/valid"

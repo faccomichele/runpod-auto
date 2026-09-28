@@ -101,15 +101,21 @@ Worker environment variables (endpoint -> Settings):
 | --------------------------- | ---------------------------------------------------------- |
 | `HF_MODEL_ID`               | Cached private Hugging Face repository, for example `my-org/comfyui-models`. |
 | `CACHED_MODELS_VERIFY_SHA`  | `true` hashes cached files against manifest SHA-256 values. |
+| `CACHED_MODELS_FETCH_FRESH_MANIFEST` | `true` performs an explicit metadata-only freshness check; requires endpoint-only `HF_TOKEN`. |
+| `HF_TOKEN`                  | Separate endpoint secret used only by the optional manifest freshness check. |
 | `BUCKET_ENDPOINT_URL`  | optional S3 output upload (phase 2 / large videos)         |
 | `BUCKET_ACCESS_KEY_ID` / `BUCKET_SECRET_ACCESS_KEY` | S3 output credentials |
 
 The image enables `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` after the
 cache check. Runtime validation reads the root `manifest.json` from the
-selected cached repository. The client auto-discovers `manifest.json` in the
-current directory or the sibling `comfyui-personal-collection` repository;
-use `--manifest` or `MODEL_MANIFEST_PATH` to override discovery. There is no
-runtime model download fallback.
+selected cached repository. With `CACHED_MODELS_FETCH_FRESH_MANIFEST=true`,
+the validator also fetches the private repository's root manifest using the
+separately injected `HF_TOKEN`; it fails on a mismatch but never uses that
+manifest or token to download model files. The client auto-discovers
+`manifest.json` in the current directory or the sibling
+`comfyui-personal-collection` repository; use `--manifest` or
+`MODEL_MANIFEST_PATH` to override discovery. There is no runtime model
+download or copy fallback.
 
 Full reference: [docs/runpod-setup.md](docs/runpod-setup.md#8-environment-variable-reference-worker).
 
@@ -120,8 +126,11 @@ Full reference: [docs/runpod-setup.md](docs/runpod-setup.md#8-environment-variab
   other PII) - that is a workflow-privacy choice, not a repo-visibility one.
 - Prompts and input images travel only over the RunPod API - never to GitHub.
 - The Hugging Face read token is configured with the endpoint's cached-model
-  setting. Never commit it. S3 output keys live in the local `.env` and endpoint
-  settings; `.env.example` is the committed template.
+  setting. Never commit it. If the optional fresh-manifest diagnostic is
+  enabled, inject a separate endpoint-only `HF_TOKEN`; the Cached Models
+  credential is not assumed to be available inside the worker. S3 output keys
+  live in the local `.env` and endpoint settings; `.env.example` is the
+  committed template.
 - Manifest URLs and `auth` blocks are source metadata only. The cached worker
   does not use them to fetch model files.
 - A gitleaks secret scan runs on pushes/PRs (`.github/workflows/secret-scan.yml`).

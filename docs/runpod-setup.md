@@ -41,7 +41,11 @@ tokens in the manifest.
 Create a Hugging Face fine-grained access token from **Settings -> Access
 Tokens** with read access to this model repository. Copy the token when it is
 created; it is entered in RunPod's cached-model configuration during endpoint
-creation and is not added to this repository or the worker environment.
+creation and is not automatically added to the worker environment. The
+optional stale-cache diagnostic described below requires a separate endpoint
+secret named `HF_TOKEN`; do not expose the Cached Models credential through
+application environment variables unless you intentionally configure that
+separate secret.
 
 ## 2. Push the worker repository to GitHub
 
@@ -106,6 +110,14 @@ or a declared size does not match. It emits a `FAIL code=` record with the
 failure class, exit code, repository id, and relevant cache paths before it
 exits. It does not download a replacement.
 
+For temporary stale-cache diagnosis, set
+`CACHED_MODELS_FETCH_FRESH_MANIFEST=true` and inject a separate endpoint
+secret named `HF_TOKEN`. The validator fetches only the private repository's
+root manifest from Hugging Face, compares its enabled inventory with the
+mounted snapshot, and fails closed on a mismatch. It never downloads or copies
+model files, and never logs the token. Leave this option disabled during normal
+operation.
+
 Use the endpoint's **Logs** tab, which retains worker stdout/stderr, when
 diagnosing startup failures. The local **Worker Logs** view is temporary and
 may disappear after an unhealthy worker terminates. The validator uses these
@@ -136,9 +148,18 @@ Use `--runsync` only for short, already-running workers.
 When model files change:
 
 1. Update the private repository and its root `manifest.json`.
-2. Restart or edit the endpoint so RunPod refreshes the selected cache.
-3. Restart workers before sending production traffic; the validator reads the
-  manifest from the new cached snapshot.
+2. Prefer a new repository id/version, such as
+  `my-org/comfyui-models-v2`, when the existing Cached Models entry remains
+  pinned to an older snapshot.
+3. Set both the endpoint **Model** value and `HF_MODEL_ID` to the new id, then
+  redeploy and restart workers before sending production traffic.
+4. If the repository id must remain unchanged, ask RunPod support to
+  invalidate or refresh the Cached Models entry. Removing and re-adding the
+  same value is not reliable evidence that its snapshot was rebuilt.
+
+The mounted `refs/main` file is the authoritative revision for a worker. A
+local `hf download --revision main` command queries Hugging Face directly and
+does not update RunPod's existing cache.
 
 GitHub integration deploys on **new GitHub releases**, not plain pushes:
 
@@ -154,13 +175,17 @@ git push origin v0.1.0
 | -------- | ------- | ------- |
 | `HF_MODEL_ID` | unset | Exact private Hugging Face repository id from the endpoint Model field. Required. |
 | `CACHED_MODELS_VERIFY_SHA` | `false` | Hash cached files against manifest SHA-256 values. |
+| `CACHED_MODELS_FETCH_FRESH_MANIFEST` | `false` | Explicitly fetch and compare only the root manifest. Requires endpoint-only `HF_TOKEN`; no model files are downloaded. |
+| `HF_TOKEN` | unset | Separate endpoint secret required only when the fresh-manifest diagnostic is enabled. Never put it in the local `.env` or image. |
 | `COMFY_LOG_LEVEL` | `DEBUG` | ComfyUI logging level. |
 | `BUCKET_ENDPOINT_URL` | unset | Optional S3 output endpoint for phase 2. |
 | `BUCKET_ACCESS_KEY_ID` | unset | Optional S3 output credential. |
 | `BUCKET_SECRET_ACCESS_KEY` | unset | Optional S3 output credential. |
 
 The image sets `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` after cache
-validation so runtime code cannot silently download a model.
+validation so runtime code cannot silently download a model. The optional
+manifest diagnostic uses a controlled standard-library metadata request before
+that handoff; it is not a model-download fallback.
 
 ## 9. Fallback: deploy from a registry
 

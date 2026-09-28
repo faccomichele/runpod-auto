@@ -15,6 +15,10 @@
 #   HF_MODEL_ID       Cached Hugging Face repository selected on the endpoint.
 #   CACHED_MODELS_VERIFY_SHA
 #                     "true" hashes cached files against manifest sha256 values.
+#   CACHED_MODELS_FETCH_FRESH_MANIFEST
+#                     "true" fetches only the private repository's root
+#                     manifest for stale-cache diagnostics; it requires a
+#                     separately injected HF_TOKEN and never downloads models.
 
 set -uo pipefail
 

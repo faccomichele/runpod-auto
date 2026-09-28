@@ -7,7 +7,8 @@
 #
 # This script never downloads or copies model files. It resolves the selected
 # snapshot, checks the enabled manifest entries, and renders the ComfyUI model
-# path configuration only after validation succeeds.
+# path configuration only after validation succeeds. An explicitly enabled
+# remote-manifest check fetches metadata only and never becomes a model source.
 
 set -uo pipefail
 
@@ -28,6 +29,10 @@ refs_path=""
 snapshot_hash=""
 snapshot_root=""
 manifest_path=""
+remote_manifest_path=""
+remote_manifest_tsv=""
+MANIFEST_TSV=""
+config_tmp=""
 
 fail() {
     local exit_code="$1"
@@ -73,6 +78,7 @@ HF_CACHE_ROOT="${HF_CACHE_ROOT:-/runpod-volume/huggingface-cache/hub}"
 CONFIG_TEMPLATE="${CACHED_MODELS_CONFIG_TEMPLATE:-/etc/runpod/extra_model_paths.yaml.template}"
 CONFIG_PATH="${CACHED_MODELS_CONFIG_PATH:-/comfyui/extra_model_paths.yaml}"
 VERIFY_SHA="${CACHED_MODELS_VERIFY_SHA:-false}"
+FETCH_FRESH_MANIFEST="${CACHED_MODELS_FETCH_FRESH_MANIFEST:-false}"
 
 if [ -z "${HF_MODEL_ID}" ]; then
     fail "${EXIT_CONFIG}" "CACHED_MODELS_CONFIG_MISSING" "HF_MODEL_ID_not_set"
@@ -90,6 +96,18 @@ case "${VERIFY_SHA}" in
     true|false) ;;
     *)
         fail "${EXIT_CONFIG}" "CACHED_MODELS_CONFIG_INVALID" "CACHED_MODELS_VERIFY_SHA_must_be_true_or_false"
+        ;;
+esac
+
+case "${FETCH_FRESH_MANIFEST}" in
+    false) ;;
+    true)
+        if [ -z "${HF_TOKEN:-}" ]; then
+            fail "${EXIT_CONFIG}" "CACHED_MODELS_REMOTE_MANIFEST_TOKEN_MISSING" "HF_TOKEN_required_for_fresh_manifest"
+        fi
+        ;;
+    *)
+        fail "${EXIT_CONFIG}" "CACHED_MODELS_CONFIG_INVALID" "CACHED_MODELS_FETCH_FRESH_MANIFEST_must_be_true_or_false"
         ;;
 esac
 
@@ -117,15 +135,106 @@ if [ ! -d "${snapshot_root}" ]; then
     fail "${EXIT_SNAPSHOT}" "CACHED_MODELS_SNAPSHOT_MISSING" "snapshot_directory_not_found"
 fi
 
-manifest_path="${snapshot_root}/manifest.json"
-if [ ! -f "${manifest_path}" ]; then
-    list_directory "snapshot_root" "${snapshot_root}"
-    fail "${EXIT_MANIFEST}" "CACHED_MODELS_MANIFEST_MISSING" "root_manifest_not_found"
-fi
-
 PY="$(command -v python3 || command -v python || true)"
 if [ -z "${PY}" ]; then
     fail "${EXIT_CONFIG}" "CACHED_MODELS_RUNTIME_MISSING" "python_interpreter_not_found"
+fi
+
+REMOTE_MANIFEST_URL="${CACHED_MODELS_REMOTE_MANIFEST_URL:-https://huggingface.co/${HF_MODEL_ID}/resolve/main/manifest.json}"
+
+case "${REMOTE_MANIFEST_URL}" in
+    https://huggingface.co/*|file://*) ;;
+    *)
+        fail "${EXIT_CONFIG}" "CACHED_MODELS_CONFIG_INVALID" "CACHED_MODELS_REMOTE_MANIFEST_URL_must_target_huggingface"
+        ;;
+esac
+
+cleanup() {
+    [ -z "${remote_manifest_path}" ] || rm -f "${remote_manifest_path}"
+    [ -z "${remote_manifest_tsv}" ] || rm -f "${remote_manifest_tsv}"
+    [ -z "${MANIFEST_TSV}" ] || rm -f "${MANIFEST_TSV}"
+    [ -z "${config_tmp}" ] || rm -f "${config_tmp}"
+}
+trap cleanup EXIT
+
+fetch_remote_manifest() {
+    "${PY}" - "${REMOTE_MANIFEST_URL}" "${remote_manifest_path}" <<'PYEOF'
+import os
+import sys
+import urllib.request
+
+url, output_path = sys.argv[1:3]
+token = os.environ.get("HF_TOKEN", "")
+headers = {"Accept": "application/json"}
+if url.startswith("https://huggingface.co/"):
+    headers["Authorization"] = "Bearer " + token
+request = urllib.request.Request(
+    url,
+    headers=headers,
+)
+
+try:
+    chunks = []
+    total = 0
+    with urllib.request.urlopen(request, timeout=20) as response:
+        while True:
+            chunk = response.read(65536)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > 4 * 1024 * 1024:
+                raise ValueError("response_too_large")
+            chunks.append(chunk)
+    with open(output_path, "wb") as output:
+        output.write(b"".join(chunks))
+except Exception as exc:  # noqa: BLE001 - classify without exposing response data
+    sys.stderr.write("remote manifest request failed: %s\n" % type(exc).__name__)
+    sys.exit(1)
+PYEOF
+}
+
+validate_remote_manifest_shape() {
+    "${PY}" - "${remote_manifest_path}" <<'PYEOF'
+import json
+import sys
+
+try:
+    with open(sys.argv[1], "r", encoding="utf-8") as manifest_file:
+        manifest = json.load(manifest_file)
+except Exception:
+    sys.stderr.write("remote manifest is not valid JSON\n")
+    sys.exit(1)
+
+models = manifest.get("models") if isinstance(manifest, dict) else None
+if not isinstance(models, list) or not models:
+    sys.stderr.write("remote manifest has no non-empty 'models' list\n")
+    sys.exit(1)
+
+if any(not isinstance(entry, dict) for entry in models):
+    sys.stderr.write("remote manifest contains a non-object model entry\n")
+    sys.exit(1)
+PYEOF
+}
+
+manifest_path="${snapshot_root}/manifest.json"
+
+if [ "${FETCH_FRESH_MANIFEST}" = "true" ]; then
+    remote_manifest_path="$(mktemp 2>/dev/null || true)"
+    if [ -z "${remote_manifest_path}" ]; then
+        fail "${EXIT_MANIFEST}" "CACHED_MODELS_REMOTE_MANIFEST_FETCH_FAILED" "remote_manifest_temp_file_creation_failed"
+    fi
+    if ! fetch_remote_manifest; then
+        fail "${EXIT_MANIFEST}" "CACHED_MODELS_REMOTE_MANIFEST_FETCH_FAILED" "remote_manifest_request_failed"
+    fi
+    if ! validate_remote_manifest_shape; then
+        fail "${EXIT_MANIFEST}" "CACHED_MODELS_REMOTE_MANIFEST_INVALID" "remote_manifest_shape_invalid"
+    fi
+    log "remote manifest fetched source=repository_main metadata_only=true"
+fi
+
+if [ ! -f "${manifest_path}" ]; then
+    list_directory "snapshot_root" "${snapshot_root}"
+    fail "${EXIT_MANIFEST}" "CACHED_MODELS_MANIFEST_MISSING" "root_manifest_not_found"
 fi
 
 # Manifest -> record stream. URLs and auth are intentionally ignored: cached
@@ -208,21 +317,63 @@ for record in records:
 PYEOF
 }
 
+if [ "${FETCH_FRESH_MANIFEST}" = "true" ]; then
+    remote_manifest_tsv="$(mktemp 2>/dev/null || true)"
+    if [ -z "${remote_manifest_tsv}" ]; then
+        fail "${EXIT_MANIFEST}" "CACHED_MODELS_REMOTE_MANIFEST_INVALID" "remote_manifest_records_temp_file_creation_failed"
+    fi
+    parse_manifest "${remote_manifest_path}" > "${remote_manifest_tsv}"
+    remote_parse_rc=$?
+    if [ "${remote_parse_rc}" -ne 0 ]; then
+        fail "${EXIT_MANIFEST}" "CACHED_MODELS_REMOTE_MANIFEST_INVALID" "remote_manifest_parse_failed"
+    fi
+fi
+
 MANIFEST_TSV="$(mktemp 2>/dev/null || true)"
 if [ -z "${MANIFEST_TSV}" ]; then
     fail "${EXIT_RENDER}" "CACHED_MODELS_OUTPUT_FAILED" "manifest_temp_file_creation_failed"
 fi
-config_tmp=""
-cleanup() {
-    [ -z "${MANIFEST_TSV}" ] || rm -f "${MANIFEST_TSV}"
-    [ -z "${config_tmp}" ] || rm -f "${config_tmp}"
-}
-trap cleanup EXIT
 
 parse_manifest "${manifest_path}" > "${MANIFEST_TSV}"
 parse_rc=$?
 if [ "${parse_rc}" -ne 0 ]; then
     fail "${EXIT_MANIFEST}" "CACHED_MODELS_MANIFEST_INVALID" "manifest_parse_failed"
+fi
+
+if [ "${FETCH_FRESH_MANIFEST}" = "true" ]; then
+    remote_comparison="$("${PY}" - "${MANIFEST_TSV}" "${remote_manifest_tsv}" <<'PYEOF'
+import hashlib
+import sys
+
+def normalized_records(path):
+    with open(path, "rb") as records_file:
+        return sorted(line.rstrip(b"\n") for line in records_file if line.strip())
+
+cached_records = normalized_records(sys.argv[1])
+remote_records = normalized_records(sys.argv[2])
+
+def digest(records):
+    return hashlib.sha256(b"\n".join(records)).hexdigest()
+
+status = "match" if cached_records == remote_records else "mismatch"
+print(
+    "%s cached_entries=%d remote_entries=%d cached_sha256=%s remote_sha256=%s"
+    % (
+        status,
+        len(cached_records),
+        len(remote_records),
+        digest(cached_records),
+        digest(remote_records),
+    )
+)
+sys.exit(0 if status == "match" else 1)
+PYEOF
+    )"
+    remote_comparison_rc=$?
+    log "remote_manifest_comparison=${remote_comparison}"
+    if [ "${remote_comparison_rc}" -ne 0 ]; then
+        fail "${EXIT_MANIFEST}" "CACHED_MODELS_MANIFEST_STALE" "remote_manifest_differs_from_cached_manifest"
+    fi
 fi
 
 if [ "${VERIFY_SHA}" = "true" ] && ! command -v sha256sum >/dev/null 2>&1; then
